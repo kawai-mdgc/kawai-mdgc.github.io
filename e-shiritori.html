@@ -1,0 +1,876 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>絵しりとり</title>
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8D%8E%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Dela+Gothic+One&family=Zen+Maru+Gothic:wght@400;500;700&display=swap">
+<style>
+/* Layout: one centered column, one task per screen (home, lobby, slot+draw, wait, reveal). Paper-and-marker look. */
+:root {
+  --bg: #eef1f6; --surface: #ffffff; --ink: #14213d; --muted: #5b6780; --line: #d5dbe7;
+  --accent: #2f5bea; --accent-ink: #ffffff; --hl: #ffd84a; --hl-ink: #14213d;
+  --ok: #1f9d63; --bad: #d6403a; --paper: #ffffff; --glow: rgba(214, 64, 58, .6);
+  --display: "Dela Gothic One", "Hiragino Maru Gothic ProN", "Hiragino Sans", sans-serif;
+  --body: "Zen Maru Gothic", "Hiragino Maru Gothic ProN", "Hiragino Sans", "Yu Gothic", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #11141c; --surface: #1a1f2c; --ink: #eaeef8; --muted: #98a3bc; --line: #2d3548;
+    --accent: #7c9bff; --accent-ink: #0c1024; --ok: #46c88a; --bad: #ff7a73; --glow: rgba(255, 122, 115, .6); color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #11141c; --surface: #1a1f2c; --ink: #eaeef8; --muted: #98a3bc; --line: #2d3548;
+  --accent: #7c9bff; --accent-ink: #0c1024; --ok: #46c88a; --bad: #ff7a73; --glow: rgba(255, 122, 115, .6); color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font-family: var(--body); font-size: 16px; line-height: 1.7;
+  padding-inline: max(16px, env(safe-area-inset-left, 0px)) max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 20px 56px;
+}
+.wrap { max-width: 720px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
+main { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+h1, h2, h3 { font-family: var(--display); font-weight: 400; line-height: 1.35; margin: 0; text-wrap: balance; }
+h1 { font-size: clamp(26px, 6vw, 38px); }
+h2 { font-size: clamp(20px, 4.5vw, 26px); }
+h3 { font-size: 17px; }
+p { margin: 0; }
+.muted { color: var(--muted); font-size: 14px; }
+.top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.logo { font-family: var(--display); font-size: 18px; }
+.logo span { background: linear-gradient(transparent 58%, var(--hl) 58% 92%, transparent 92%); padding: 0 2px; }
+.chip { font-size: 13px; padding: 4px 12px; border: 1.5px solid var(--line); border-radius: 99px; background: var(--surface); }
+.chip b { font-family: var(--display); font-weight: 400; letter-spacing: .12em; }
+.card { background: var(--surface); border: 1.5px solid var(--line); border-radius: 14px; padding: 20px; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.row > * { min-width: 0; }
+label { font-size: 13px; font-weight: 700; color: var(--muted); display: block; margin-bottom: 4px; }
+input { font: inherit; color: var(--ink); background: var(--bg); border: 1.5px solid var(--line); border-radius: 10px; padding: 10px 12px; width: 100%; }
+input:focus-visible, button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+input.code { font-family: var(--display); letter-spacing: .25em; text-transform: uppercase; text-align: center; font-size: 22px; }
+button { font: inherit; font-weight: 700; cursor: pointer; color: var(--ink); background: var(--surface); border: 1.5px solid var(--ink); border-radius: 10px; padding: 9px 16px; box-shadow: 0 3px 0 var(--ink); transition: transform .06s, box-shadow .06s; }
+button:active:not(:disabled) { transform: translateY(3px); box-shadow: 0 0 0 var(--ink); }
+button.primary { background: var(--accent); color: var(--accent-ink); }
+button.ghost { border-color: var(--line); box-shadow: none; font-weight: 500; color: var(--muted); }
+button:disabled { opacity: .45; cursor: not-allowed; }
+.flow { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 14px; }
+.flow i { font-style: normal; color: var(--muted); }
+.flow b { font-weight: 700; padding: 2px 10px; border-radius: 8px; border: 1.5px solid var(--line); background: var(--surface); }
+.flow b.d { background: var(--hl); color: var(--hl-ink); border-color: var(--hl); }
+ol { margin: 0; padding-left: 1.3em; display: flex; flex-direction: column; gap: 4px; }
+.big-code { font-family: var(--display); font-size: clamp(40px, 12vw, 64px); letter-spacing: .18em; line-height: 1.1; padding-left: .18em; }
+.plist { list-style: none; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.plist li { padding: 6px 14px; border-radius: 99px; background: var(--bg); border: 1.5px solid var(--line); font-weight: 700; }
+.plist li.me { border-color: var(--accent); }
+.plist li small { color: var(--muted); font-weight: 500; margin-left: 6px; }
+.step { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.order { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; font-size: 14px; }
+.order i { font-style: normal; color: var(--muted); }
+.order b { padding: 2px 12px; border-radius: 99px; border: 1.5px solid var(--line); background: var(--surface); font-weight: 700; }
+.order b.cur { background: var(--hl); color: var(--hl-ink); border-color: var(--hl); }
+.order b.me { outline: 2px solid var(--accent); outline-offset: 1px; }
+.quote { font-size: clamp(18px, 4.6vw, 24px); font-weight: 700; padding: 14px 18px; border-radius: 12px; background: var(--hl); color: var(--hl-ink); overflow-wrap: anywhere; }
+.slot { border: 2px solid var(--ink); border-radius: 14px; background: var(--surface); padding: 26px 12px; text-align: center; box-shadow: 0 4px 0 var(--ink); overflow: hidden; }
+.slot .cap { font-size: 13px; font-weight: 700; color: var(--muted); }
+.reel { font-family: var(--display); font-size: clamp(34px, 10vw, 56px); line-height: 1.3; }
+.reel.a { animation: dropA .12s; }
+.reel.b { animation: dropB .12s; }
+@keyframes dropA { from { transform: translateY(-45%); opacity: .25; } to { transform: none; opacity: 1; } }
+@keyframes dropB { from { transform: translateY(-45%); opacity: .25; } to { transform: none; opacity: 1; } }
+.slot.land { background: var(--hl); color: var(--hl-ink); }
+.slot.land .cap { color: var(--hl-ink); }
+.slot.land .reel { animation: pop .5s; }
+@keyframes pop { 0% { transform: scale(.6); } 60% { transform: scale(1.15); } 100% { transform: scale(1); } }
+canvas.paper { width: 100%; max-width: 100%; aspect-ratio: 10 / 7; height: auto; background: var(--paper); border: 1.5px solid var(--ink); border-radius: 10px; display: block; touch-action: none; cursor: crosshair; }
+canvas.view { cursor: default; }
+.tools { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.sw { width: 30px; height: 30px; border-radius: 50%; padding: 0; box-shadow: none; border: 2px solid var(--line); }
+.sw.on { outline: 3px solid var(--accent); outline-offset: 2px; border-color: var(--ink); }
+.sz { width: 36px; height: 36px; padding: 0; box-shadow: none; border-color: var(--line); display: grid; place-items: center; }
+.sz.on { border-color: var(--ink); outline: 2px solid var(--accent); }
+.sz i { display: block; border-radius: 50%; background: var(--ink); }
+.tools button.t { padding: 6px 12px; font-size: 14px; box-shadow: none; border-color: var(--line); }
+.tools button.t.on { border-color: var(--ink); outline: 2px solid var(--accent); }
+.seg { display: flex; border: 1.5px solid var(--ink); border-radius: 10px; overflow: hidden; }
+.seg button { flex: 1; border: 0; border-radius: 0; box-shadow: none; background: var(--surface); font-weight: 500; padding: 8px 10px; font-size: 14px; }
+.seg button + button { border-left: 1.5px solid var(--ink); }
+.seg button.on { background: var(--ink); color: var(--bg); }
+.seg button:disabled { opacity: 1; cursor: default; }
+.seg button:disabled:not(.on) { color: var(--muted); }
+.bar { height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; }
+.bar i { display: block; height: 100%; background: var(--ok); transition: width .3s; }
+.strip { display: flex; gap: 22px; overflow-x: auto; padding: 18px 18px 16px; margin: -14px -14px -4px; align-items: stretch; }
+.mini { flex: 0 0 150px; width: 150px; display: flex; flex-direction: column; gap: 4px; position: relative; font-size: 12px; }
+.mini.big { flex-basis: min(240px, 68vw); width: min(240px, 68vw); }
+.mini.sm { flex-basis: 112px; width: 112px; gap: 2px; }
+.mini.sm b, .mini.sm span { font-size: 12px; line-height: 1.4; }
+canvas.paper:not(.view) { width: min(100%, calc(44vh * 10 / 7)); margin-inline: auto; }
+.mini + .mini::before { content: "→"; position: absolute; left: -19px; top: 30%; color: var(--muted); font-size: 16px; }
+.mini canvas { width: 100%; aspect-ratio: 10/7; height: auto; border: 1.5px solid var(--line); border-radius: 8px; background: var(--paper); display: block; }
+.mini b { font-size: 14px; }
+.steps { display: flex; flex-direction: column; gap: 22px; }
+.sc { display: flex; flex-direction: column; gap: 8px; }
+.sc .who { font-size: 13px; color: var(--muted); font-weight: 700; }
+.sc .who b { background: var(--hl); color: var(--hl-ink); border-radius: 6px; padding: 1px 8px; margin-right: 6px; }
+.sc .w { font-family: var(--display); font-size: clamp(20px, 5vw, 26px); }
+.sc .g { font-size: 14px; }
+.ok { color: var(--ok); font-weight: 700; }
+.ng { color: var(--bad); font-weight: 700; }
+.mini.new canvas { border-color: var(--bad); box-shadow: 0 0 0 2px var(--bad), 0 0 16px 4px var(--glow); }
+.mini.new b { color: var(--bad); }
+.chain { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; font-weight: 700; font-size: 20px; line-height: 1.5; }
+.chain i { font-style: normal; color: var(--muted); font-size: 16px; }
+.chain .ng { display: inline-block; padding: 0 10px; border-radius: 8px; border: 1.5px solid var(--bad); background: color-mix(in srgb, var(--bad) 12%, transparent); }
+.chain .ng small { font-size: 14px; font-weight: 500; margin-left: 4px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+.thumb { display: flex; flex-direction: column; gap: 4px; padding: 6px; text-align: left; box-shadow: none; border-color: var(--line); background: var(--surface); font-weight: 700; min-width: 0; }
+.thumb canvas { width: 100%; aspect-ratio: 10 / 7; height: auto; border: 1.5px solid var(--line); border-radius: 8px; background: var(--paper); display: block; }
+.thumb span { overflow-wrap: anywhere; font-size: 14px; }
+.ov { position: fixed; inset: 0; background: rgba(10, 14, 28, .72); display: flex; align-items: flex-start; justify-content: center; padding: max(16px, env(safe-area-inset-top, 0px)) 16px 16px; overflow-y: auto; z-index: 30; }
+.ov .card { width: min(640px, 100%); }
+dl.info { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; margin: 0; }
+dl.info dt { color: var(--muted); font-size: 13px; font-weight: 700; }
+dl.info dd { margin: 0; overflow-wrap: anywhere; }
+#toast { position: fixed; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 10px 18px; border-radius: 10px; font-size: 14px; font-weight: 700; max-width: min(92vw, 460px); z-index: 20; }
+@media (prefers-reduced-motion: reduce) { .sc, .mini, .bar i, button, .reel, .slot.land .reel { transition: none; animation: none !important; } }
+</style>
+</head>
+<body>
+<div id="app"><div class="wrap"><p class="muted">読み込み中…</p></div></div>
+<div id="toast" role="status" hidden></div>
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script>
+(function () {
+  "use strict";
+  var W = 600, H = 420, MAXP = 8, PREFIX = "eshiri-v1-";
+  var COLORS = ["#1b1b1f", "#e5484d", "#f5a524", "#f2d12e", "#3fa86b", "#2f6fed", "#8e4ec6", "#8b5a3c"];
+  var TOPICS = ["りんご", "ねこ", "さかな", "ひこうき", "じてんしゃ", "うさぎ", "いちご", "ひまわり", "とけい", "かさ", "ろけっと", "すいか", "たいよう", "おにぎり", "ぼうし", "くつ", "でんしゃ", "にじ", "くじら", "かめ", "さくら", "たこ", "ぶた", "とまと", "ばなな", "めがね", "たまご", "ちょうちょ", "こたつ", "くつした", "らくだ", "いるか", "まくら", "ゆきだるま", "でんわ", "ぶどう", "さんた", "ごりら", "らっぱ", "ぴあの", "かぼちゃ", "てんとうむし", "おばけ", "ほうき", "どーなつ", "ぱんだ", "しろくま", "あひる", "かえる", "へび"];
+  var SMALL = { "ぁ": "あ", "ぃ": "い", "ぅ": "う", "ぇ": "え", "ぉ": "お", "ゃ": "や", "ゅ": "ゆ", "ょ": "よ", "ゎ": "わ", "っ": "つ" };
+  var DEFAULTS = { laps: 2, vis: "secret" }; /* laps: 0 = 無限(終了ボタンで終わる) */
+  var S = { isHost: false, pid: null, name: "", code: null, room: null, roomReady: false, players: [], entries: new Map(), rejCb: null };
+  var lastKey = null, tTimer = null;
+  var peer = null, hostConn = null, conns = {};
+
+  /* ---------- helpers ---------- */
+  function h(tag, props) {
+    var e = document.createElement(tag), k, v;
+    props = props || {};
+    for (k in props) {
+      v = props[k];
+      if (k === "class") e.className = v;
+      else if (k.indexOf("on") === 0) e.addEventListener(k.slice(2), v);
+      else if (v === true) e.setAttribute(k, "");
+      else if (v !== false && v != null) e.setAttribute(k, v);
+    }
+    for (var i = 2; i < arguments.length; i++) add(e, arguments[i]);
+    return e;
+  }
+  function add(e, c) {
+    if (Array.isArray(c)) c.forEach(function (x) { add(e, x); });
+    else if (c != null && c !== false) e.append(c);
+  }
+  function $(s) { return document.querySelector(s); }
+  function ls(k, v) {
+    try { if (v === undefined) return localStorage.getItem("eshiri." + k); if (v === null) localStorage.removeItem("eshiri." + k); else localStorage.setItem("eshiri." + k, v); } catch (e) {}
+    return null;
+  }
+  function toast(t) {
+    var el = $("#toast"); el.textContent = t; el.hidden = false;
+    clearTimeout(tTimer); tTimer = setTimeout(function () { el.hidden = true; }, 4200);
+  }
+  function cleanId(s) { return String(s).replace(/[^A-Za-z0-9_\-.~:@+]/g, "_").slice(0, 120); }
+  function nameOf(id) { var p = S.players.find(function (x) { return x.id === id; }); return (p && p.name) || "だれか"; }
+  function genCode() { var a = "ABCDEFGHJKLMNPQRSTUVWXYZ", s = ""; for (var i = 0; i < 4; i++) s += a[Math.floor(Math.random() * a.length)]; return s; }
+  function shuffle(a) { a = a.slice(); for (var i = a.length - 1; i > 0; i--) { var j = Math.floor(Math.random() * (i + 1)), t = a[i]; a[i] = a[j]; a[j] = t; } return a; }
+  function inviteUrl() { return location.href.split("#")[0] + "#room-" + S.code; }
+
+  /* ---------- kana / rules ---------- */
+  function norm(s) { return String(s || "").normalize("NFKC").replace(/\s+/g, "").replace(/[ァ-ヶ]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 0x60); }); }
+  function isKana(s) { return /^[ぁ-ゖー]+$/.test(s) && s.charAt(0) !== "ー"; }
+  function lastKana(s) { s = s.replace(/ー+$/, ""); var c = s.slice(-1); return SMALL[c] || c; }
+  function firstKana(s) { var c = s.charAt(0); return SMALL[c] || c; }
+  function endsN(w) { return !!w && lastKana(norm(w)) === "ん"; }
+  /* 比較用: 点(゛)や丸(゜)は無視する。こ=ご、は=ば=ぱ */
+  function base(s) { return norm(s).normalize("NFD").replace(/[゙゚]/g, "").split("").map(function (c) { return SMALL[c] || c; }).join(""); }
+  function same(a, b) { return base(a) === base(b); }
+  function checkTurn(room, entries, t, e) {
+    var word = norm(e.word), guess;
+    if (!isKana(word)) return "言葉はひらがなで入れてください";
+    if (t === 0) { if (word !== norm(room.topic)) return "お題の言葉で描いてください"; }
+    else {
+      guess = norm(e.guess);
+      if (!isKana(guess)) return "答えはひらがなで入れてください";
+      if (lastKana(guess) === "ん") return "「ん」で終わる答えは使えません。別の答えを考えてください";
+      if (!same(firstKana(word), lastKana(guess))) return "「" + lastKana(guess) + "」から始まる言葉にしてください";
+    }
+    var dup = false; entries.forEach(function (v) { if (same(v.word, word)) dup = true; });
+    if (dup) return "その言葉はもう使われています";
+    if (!Array.isArray(e.strokes) || !e.strokes.length) return "絵を描いてから完成を押してください";
+    return null;
+  }
+
+  /* ---------- drawing ---------- */
+  function drawStrokes(ctx, strokes) {
+    ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, W, H);
+    ctx.lineCap = "round"; ctx.lineJoin = "round";
+    strokes.forEach(function (s) {
+      var p = s.p, k;
+      ctx.strokeStyle = s.c; ctx.fillStyle = s.c; ctx.lineWidth = s.w;
+      if (p.length <= 2) { ctx.beginPath(); ctx.arc(p[0], p[1], s.w / 2, 0, 7); ctx.fill(); return; }
+      ctx.beginPath(); ctx.moveTo(p[0], p[1]);
+      for (k = 2; k < p.length - 2; k += 2) ctx.quadraticCurveTo(p[k], p[k + 1], (p[k] + p[k + 2]) / 2, (p[k + 1] + p[k + 3]) / 2);
+      ctx.lineTo(p[p.length - 2], p[p.length - 1]); ctx.stroke();
+    });
+  }
+  function viewCanvas(strokes) {
+    var cv = h("canvas", { width: W, height: H, class: "paper view" });
+    drawStrokes(cv.getContext("2d"), strokes || []);
+    return cv;
+  }
+  function packStrokes(strokes) {
+    var s = strokes.map(function (x) { return { c: x.c, w: x.w, p: x.p.slice() }; });
+    while (JSON.stringify(s).length > 200000) {
+      var changed = false;
+      s.forEach(function (x) {
+        if (x.p.length > 8) {
+          var q = [x.p[0], x.p[1]];
+          for (var k = 2; k < x.p.length - 2; k += 4) q.push(x.p[k], x.p[k + 1]);
+          q.push(x.p[x.p.length - 2], x.p[x.p.length - 1]);
+          x.p = q; changed = true;
+        }
+      });
+      if (!changed) break;
+    }
+    return s;
+  }
+  function makeEditor() {
+    var strokes = [], color = COLORS[0], size = 6, tool = "pen", cur = null;
+    var cv = h("canvas", { width: W, height: H, class: "paper", "aria-label": "お絵描きキャンバス" });
+    var ctx = cv.getContext("2d");
+    function redraw() { drawStrokes(ctx, strokes); }
+    redraw();
+    function eff() { return tool === "eraser" ? { c: "#ffffff", w: Math.round(size * 2.5) } : { c: color, w: size }; }
+    function pt(e) { var r = cv.getBoundingClientRect(); return [Math.round((e.clientX - r.left) * W / r.width), Math.round((e.clientY - r.top) * H / r.height)]; }
+    cv.addEventListener("pointerdown", function (e) {
+      if (e.button > 0) return;
+      e.preventDefault(); try { cv.setPointerCapture(e.pointerId); } catch (x) {}
+      var p = pt(e), t = eff();
+      cur = { c: t.c, w: t.w, p: [p[0], p[1]] };
+      ctx.fillStyle = t.c; ctx.beginPath(); ctx.arc(p[0], p[1], t.w / 2, 0, 7); ctx.fill();
+    });
+    cv.addEventListener("pointermove", function (e) {
+      if (!cur) return;
+      var p = pt(e), a = cur.p, lx = a[a.length - 2], ly = a[a.length - 1];
+      if (Math.hypot(p[0] - lx, p[1] - ly) < 2) return;
+      ctx.strokeStyle = cur.c; ctx.lineWidth = cur.w; ctx.lineCap = "round";
+      ctx.beginPath(); ctx.moveTo(lx, ly); ctx.lineTo(p[0], p[1]); ctx.stroke();
+      a.push(p[0], p[1]);
+    });
+    function end() { if (!cur) return; strokes.push(cur); cur = null; redraw(); }
+    cv.addEventListener("pointerup", end);
+    cv.addEventListener("pointercancel", end);
+    var swatches = COLORS.map(function (c) {
+      return h("button", { class: "sw", style: "background:" + c, "aria-label": "色 " + c, onclick: function () { color = c; tool = "pen"; sync(); } });
+    });
+    var sizes = [3, 7, 14].map(function (n) {
+      return h("button", { class: "sz", "aria-label": "太さ " + n, onclick: function () { size = n; sync(); } }, h("i", { style: "width:" + (n + 2) + "px;height:" + (n + 2) + "px" }));
+    });
+    var penBtn = h("button", { class: "t", onclick: function () { tool = "pen"; sync(); } }, "ペン");
+    var erBtn = h("button", { class: "t", onclick: function () { tool = "eraser"; sync(); } }, "消しゴム");
+    function sync() {
+      swatches.forEach(function (b, i) { b.classList.toggle("on", tool === "pen" && COLORS[i] === color); });
+      sizes.forEach(function (b, i) { b.classList.toggle("on", [3, 7, 14][i] === size); });
+      penBtn.classList.toggle("on", tool === "pen"); erBtn.classList.toggle("on", tool === "eraser");
+    }
+    sync();
+    var el = h("div", { class: "card", style: "padding:14px;gap:10px" },
+      h("div", { class: "tools" }, swatches, h("span", { style: "width:6px" }), sizes),
+      h("div", { class: "tools" }, penBtn, erBtn,
+        h("button", { class: "t", onclick: function () { strokes.pop(); redraw(); } }, "ひとつ戻す"),
+        h("button", { class: "t", onclick: function () { strokes.length = 0; redraw(); } }, "全部消す")),
+      cv);
+    return { el: el, strokes: strokes };
+  }
+
+  /* ---------- game state ---------- */
+  function derive() {
+    var order = S.room.order || [], N = order.length, set = S.room.settings || DEFAULTS, n = S.entries.size;
+    var last = n ? S.entries.get(String(n - 1)) : null, total = set.laps ? N * set.laps : Infinity;
+    var nEnd = !!(last && endsN(last.word)), cur = order[n % N];
+    var leftEnd = (S.room.left || []).indexOf(cur) >= 0; /* 順番が来た人が退出していたら、そこで終了 */
+    return {
+      order: order, N: N, idx: order.indexOf(S.pid), n: n, total: total, turn: n, cur: cur, last: last, nEnd: nEnd, set: set, leftEnd: leftEnd,
+      finished: !!S.room.ended || n >= total || nEnd || leftEnd
+    };
+  }
+  function orderStrip(g) {
+    var ci = g.turn % g.N;
+    return h("div", { class: "order", "aria-label": "順番" }, g.order.map(function (id, i) {
+      return [i ? h("i", {}, "→") : null, h("b", { class: (i === ci ? "cur" : "") + (id === S.pid ? " me" : "") }, nameOf(id))];
+    }));
+  }
+
+  /* ---------- views ---------- */
+  function header() {
+    return h("header", { class: "top" },
+      h("div", { class: "logo" }, h("span", {}, "絵"), "しりとり"),
+      h("div", { class: "row" }, S.code ? h("div", { class: "chip" }, "部屋 ", h("b", {}, S.code)) : null, leaveBtn()));
+  }
+  function leaveBtn() {
+    if (!S.code || !S.room) return null;
+    var armed = false, b = h("button", { class: "ghost", style: "padding:5px 12px;font-size:13px" }, "退出");
+    b.addEventListener("click", function () {
+      var risky = S.room.phase === "play" && !derive().finished;
+      if (risky && !armed) {
+        armed = true; b.textContent = S.isHost ? "部屋が終わります。本当に?" : "本当に退出?";
+        setTimeout(function () { armed = false; b.textContent = "退出"; }, 4000);
+        return;
+      }
+      backHome();
+    });
+    return b;
+  }
+  function shell() { return h("div", { class: "wrap" }, header(), h("main", {}, Array.prototype.slice.call(arguments))); }
+  function view() {
+    if (!S.code && S.joining) return { key: "joining", build: function () { return shell(h("p", { class: "muted" }, "部屋に参加中…")); } };
+    if (!S.code) return S.album ? { key: "album", build: vAlbum } : { key: "home", build: vHome };
+    if (!S.roomReady) return { key: "loading", build: function () { return shell(h("p", { class: "muted" }, "部屋に接続中…")); } };
+    if (!S.room) return { key: "gone", build: function () { return shell(h("div", { class: "card" }, h("h2", {}, "部屋が見つかりません"), h("button", { class: "primary", onclick: backHome }, "ホームに戻る"))); } };
+    if (S.room.phase === "lobby") return { key: "lobby", build: vLobby, update: updLobby };
+    var g = derive();
+    if (g.finished) return { key: "reveal", build: vReveal };
+    if (g.idx < 0) return { key: "spec", build: function () { return shell(h("div", { class: "card" }, h("h2", {}, "ゲームが始まっています"), h("p", { class: "muted" }, "途中参加はできません。終わると結果だけ見られます。"), h("button", { onclick: backHome }, "ホームに戻る"))); } };
+    if (g.cur === S.pid) return { key: "play:" + g.turn, build: function () { return vCompose(g); } };
+    return { key: "wait", build: vWait, update: updWait };
+  }
+  function render() {
+    var v = view(), app = $("#app");
+    if (v.key !== lastKey) { lastKey = v.key; app.replaceChildren(v.build()); if (v.update) v.update(); }
+    else if (v.update) v.update();
+  }
+
+  function inviteCode() { var m = location.hash.match(/^#room-([A-Za-z]{4})$/); return m ? m[1].toUpperCase() : null; }
+  /* 招待リンクで開いたとき、ニックネームが分かっていれば参加画面を飛ばして待機画面に入る */
+  function tryInvite() {
+    var c = inviteCode();
+    if (!c || S.code || S.joining || !S.name) return false;
+    if (ls("role") === "host" && ls("room") === c) return false;
+    joinRoom(c);
+    return true;
+  }
+  function vHome() {
+    var nick = h("input", { id: "nick", maxlength: "12", placeholder: "例: たろう", value: S.name, autocomplete: "nickname" });
+    var codeIn = h("input", { id: "code", class: "code", maxlength: "4", placeholder: "ABCD", autocomplete: "off" });
+    var m = inviteCode();
+    function nm() { var n = nick.value.trim(); if (!n) { toast("ニックネームを入れてください"); nick.focus(); return null; } S.name = n; ls("name", n); return n; }
+    var nameCard = h("div", {}, h("label", { for: "nick" }, "ニックネーム"), nick);
+    if (m) {
+      /* 招待リンクから来た人: ニックネームを入れるだけで待機画面に入る */
+      return shell(h("div", { class: "card" },
+        h("h2", {}, "部屋 " + m + " に招待されています"), nameCard,
+        h("button", { class: "primary", onclick: function () { if (nm()) joinRoom(m); } }, "参加する"),
+        h("button", { class: "ghost", style: "align-self:flex-start", onclick: function () { setHash(""); lastKey = null; render(); } }, "ホームへ")));
+    }
+    var createBtn = h("button", { class: "primary", onclick: function () { if (nm()) createRoom(); } }, "部屋をつくる(ホスト)");
+    var joinBtn = h("button", { onclick: function () { if (nm()) joinRoom(codeIn.value.trim().toUpperCase()); } }, "参加する");
+    var joinBox = h("div", { class: "col" }, h("div", {}, h("label", { for: "code" }, "友だちの部屋コード"), codeIn), joinBtn);
+    return shell(
+      h("div", {}, h("button", { onclick: function () { S.album = true; render(); } }, "アルバム")),
+      h("div", { class: "card" }, nameCard, createBtn, h("hr", { style: "border:0;border-top:1.5px dashed var(--line);width:100%;margin:2px 0" }), joinBox),
+      h("div", { class: "card" },
+        h("h3", {}, "遊び方"),
+        h("ol", {},
+          h("li", {}, "ホストが部屋をつくり、コードか招待リンクをみんなに共有します。"),
+          h("li", {}, "全員そろったらホストが開始。順番はランダムで決まります。"),
+          h("li", {}, "1番目の人だけにお題が出ます。絵を描いて「完成」を押します。"),
+          h("li", {}, "次の人は前の絵だけを見て、何の絵かを答え、その最後の文字から始まる言葉を絵に描きます。"),
+          h("li", {}, "終わったら、答えが合っていたか一気に見られます。")),
+        h("p", { class: "muted" }, "2〜8人で遊べます。")));
+  }
+
+  function seg(opts, cur, enabled, pick) {
+    return h("div", { class: "seg" }, opts.map(function (o) {
+      return h("button", { class: String(o[0]) === String(cur) ? "on" : "", disabled: !enabled, onclick: function () { pick(o[0]); } }, o[1]);
+    }));
+  }
+  function fillSettings() {
+    var box = $("#settings"), set = S.room.settings || DEFAULTS, hostOk = S.isHost;
+    box.replaceChildren(
+      h("div", {}, h("label", {}, "何周するか(人数×周回数の枚数でおしまい)"),
+        seg([[1, "1周"], [2, "2周"], [3, "3周"], [0, "無限"]], set.laps, hostOk, function (v) { setOpt("laps", v); })),
+      h("div", {}, h("label", {}, "順番を待っている人から見える絵"),
+        seg([["secret", "完全シークレット"], ["live", "完成した絵だけ見える"]], set.vis, hostOk, function (v) { setOpt("vis", v); })),
+      h("p", { class: "muted" }, (hostOk ? "ホストだけが変えられます。" : "設定はホストが決めます。") + "「ん」で終わる言葉を描いた人の負けで終了します。「無限」のときは、ホストの「ここで終了」で終わります。"));
+  }
+  function vLobby() {
+    var isHost = S.isHost;
+    return shell(
+      h("div", { class: "card" },
+        h("p", { class: "muted" }, "この部屋コードか招待リンクをみんなに共有してください"),
+        h("div", { class: "big-code" }, S.code),
+        h("div", { class: "row" },
+          h("button", { onclick: function () { copy(S.code, "コードをコピーしました"); } }, "コードをコピー"),
+          h("button", { onclick: function () { copy(inviteUrl(), "リンクをコピーしました"); } }, "リンクをコピー"))),
+      h("div", { class: "card" },
+        h("h3", { id: "pcount" }),
+        h("ul", { class: "plist", id: "plist" }),
+        isHost
+          ? h("div", { class: "row" }, h("button", { class: "primary", id: "startbtn", onclick: startGame }, "ゲームを開始する"), h("span", { class: "muted", id: "starthint" }))
+          : h("p", { class: "muted" }, "ホストが始めるのを待っています…")),
+      h("div", { class: "card" }, h("h3", {}, "ルール設定"), h("div", { id: "settings", class: "col" })),
+      h("button", { class: "ghost", onclick: backHome, style: "align-self:flex-start" }, isHost ? "部屋を閉じる" : "部屋を出る"));
+  }
+  function updLobby() {
+    $("#plist").replaceChildren.apply($("#plist"), S.players.map(function (p) {
+      return h("li", { class: p.id === S.pid ? "me" : "" }, p.name, p.id === S.room.host ? h("small", {}, "ホスト") : null);
+    }));
+    $("#pcount").textContent = "参加者 " + S.players.length + "人";
+    var b = $("#startbtn");
+    if (b) { b.disabled = S.players.length < 2; $("#starthint").textContent = S.players.length < 2 ? "2人以上で始められます" : ""; }
+    fillSettings();
+  }
+
+  function slot(topic, done) {
+    var reel = h("div", { class: "reel" }, "？？？"), box = h("div", { class: "slot", "aria-live": "polite" }, h("div", { class: "cap" }, "あなたのお題は…"), reel);
+    function land() { reel.textContent = topic; reel.className = "reel"; box.classList.add("land"); box.firstChild.textContent = "お題はこれ!"; done(); }
+    if (window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches) { land(); return box; }
+    var t0 = Date.now(), total = 2600, flip = false;
+    (function tick() {
+      var el = Date.now() - t0;
+      if (el >= total) { land(); return; }
+      flip = !flip; reel.className = "reel " + (flip ? "a" : "b");
+      reel.textContent = TOPICS[Math.floor(Math.random() * TOPICS.length)];
+      setTimeout(tick, 60 + Math.pow(el / total, 3) * 380);
+    })();
+    return box;
+  }
+  function vCompose(g) {
+    var t = g.turn, prev = t > 0 ? S.entries.get(String(t - 1)) : null, ed = makeEditor(), warned = false;
+    var go = h("button", { class: "primary" }, "完成!");
+    var wordIn = kanaInput({ id: "word", placeholder: "ひらがなで" });
+    var guessIn = kanaInput({ id: "guess", placeholder: "例: りんご" });
+    var drawBox = h("div", { class: "col", hidden: true, style: "gap:10px" });
+    var body;
+    if (t === 0) {
+      drawBox.append(h("p", { class: "muted" }, "このお題を絵に描いて、完成を押してください。お題は他の人には見えません。"), ed.el, go);
+      body = [slot(S.room.topic, function () { drawBox.hidden = false; }), drawBox];
+    } else {
+      var secret = S.room.settings && S.room.settings.vis === "secret";
+      var wordLabel = h("label", { for: "word" }, "描く言葉(ひらがな)");
+      var viewBox = h("div", { class: "col", style: "gap:10px" },
+        secret
+          ? [h("h3", {}, "前の人が描いた絵"), h("div", { style: "max-width:200px" }, viewCanvas(prev ? prev.strokes : []))]
+          : [h("div", { class: "step" }, h("h3", {}, "これまでの絵"), h("span", { class: "muted" }, "赤く光るのが最新")), logStrip(g, true)]);
+      var gbtn = h("button", { onclick: function () {
+        var gs = norm(guessIn.value);
+        if (!isKana(gs)) { toast("答えはひらがなで入れてください"); return; }
+        if (lastKana(gs) === "ん") { toast("「ん」で終わる答えは使えません。別の答えを考えてください"); return; }
+        ansText.textContent = "「" + gs + "」";
+        wordLabel.textContent = "「" + lastKana(gs) + "」から始まる言葉を描こう"; wordLabel.style.color = "var(--ink)";
+        wordIn.placeholder = lastKana(gs) + "…";
+        viewBox.hidden = true; guessRow.hidden = true; ansRow.hidden = false; drawBox.hidden = false; wordIn.focus();
+      } }, "決定");
+      var guessRow = h("div", { class: "col", style: "gap:8px" }, h("div", {}, h("label", { for: "guess" }, "この絵は何? (ひらがなで)"), guessIn.box), h("div", {}, gbtn));
+      var ansText = h("b", {});
+      var ansRow = h("div", { class: "row", hidden: true }, h("span", { class: "muted" }, "あなたの答え:"), ansText,
+        h("button", { class: "ghost", style: "padding:4px 10px;font-size:13px", onclick: function () { viewBox.hidden = false; guessRow.hidden = false; ansRow.hidden = true; guessIn.focus(); } }, "変える"));
+      drawBox.append(h("div", {}, wordLabel, wordIn.box), ed.el, go);
+      body = [h("div", { class: "card", style: "gap:10px;padding:14px" }, viewBox, guessRow, ansRow), drawBox];
+    }
+    go.addEventListener("click", function () {
+      var ent = { word: t === 0 ? S.room.topic : wordIn.value, strokes: ed.strokes.length ? packStrokes(ed.strokes) : [] };
+      if (t > 0) ent.guess = guessIn.value;
+      var er = checkTurn(S.room, S.entries, t, ent);
+      if (er) { toast(er); return; }
+      if (endsN(ent.word) && !warned) { warned = true; go.textContent = "「ん」で終わります。このまま完成?"; return; }
+      go.disabled = true;
+      submit(ent).then(function (ok) { if (!ok) go.disabled = false; });
+    });
+    return shell(orderStrip(g), h("div", { class: "step" }, h("h2", {}, "あなたの番です"), h("span", { class: "muted" }, countText(g))), body,
+      S.isHost && t > 0 ? h("div", {}, h("button", { class: "ghost", onclick: endNow }, "ここで終了して結果を見る")) : null);
+  }
+  function countText(g) { return g.total === Infinity ? (g.turn + 1) + "枚目" : (g.turn + 1) + " / " + g.total + " 枚目"; }
+  /* ひらがな入力: カタカナ・半角カナは自動でひらがなに直す。漢字は直せないので注意を出す */
+  function kanaInput(attrs) {
+    var inp = h("input", Object.assign({ maxlength: "20", lang: "ja", autocomplete: "off", autocapitalize: "off", autocorrect: "off", spellcheck: "false" }, attrs));
+    var note = h("p", { class: "muted", hidden: true, style: "color:var(--bad)" }, "漢字が入っています。ひらがなに直してください");
+    function fix() {
+      var v = inp.value, n = v.normalize("NFKC").replace(/[ァ-ヶ]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 0x60); }).replace(/\s+/g, "");
+      if (n !== v) inp.value = n;
+      note.hidden = !/[一-鿿]/.test(inp.value);
+    }
+    /* 変換中は、変換前のひらがな(読み)を覚えておく。確定で漢字になったら、その読みに戻す */
+    var reading = "";
+    function toHira(s) { return s.normalize("NFKC").replace(/[ァ-ヶ]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 0x60); }); }
+    inp.addEventListener("compositionstart", function () { reading = ""; });
+    inp.addEventListener("compositionupdate", function (e) {
+      var d = toHira(e.data || "");
+      if (/^[ぁ-ゖー]+$/.test(d)) reading = d;
+    });
+    inp.addEventListener("compositionend", function (e) {
+      var d = e.data || "", v = inp.value, i;
+      if (reading && /[一-鿿]/.test(d)) {
+        i = v.lastIndexOf(d);
+        if (i >= 0) {
+          inp.value = v.slice(0, i) + reading + v.slice(i + d.length);
+          try { inp.setSelectionRange(i + reading.length, i + reading.length); } catch (x) {}
+        }
+      }
+      reading = "";
+      fix();
+    });
+    inp.addEventListener("input", function (e) { if (!e.isComposing) fix(); });
+    inp.addEventListener("blur", fix);
+    Object.defineProperty(inp, "box", { value: h("div", { class: "col", style: "gap:4px" }, inp, note) });
+    return inp;
+  }
+  function logStrip(g, small) {
+    var list = [], i;
+    for (i = 0; i < g.n; i++) list.push(S.entries.get(String(i)));
+    var strip = h("div", { class: "strip", "aria-label": "これまでの絵" }, list.map(function (e, k) {
+      return h("div", { class: "mini " + (small ? "sm" : "big") + (k === list.length - 1 ? " new" : "") }, viewCanvas(e.strokes), h("b", {}, (k + 1) + "枚目"), h("span", { class: "muted" }, nameOf(e.author)));
+    }));
+    requestAnimationFrame(function () { strip.scrollLeft = strip.scrollWidth; });
+    return strip;
+  }
+
+  function vWait() {
+    return shell(
+      h("div", { id: "ord" }),
+      h("div", { class: "card" }, h("h2", { id: "wtitle" }), h("p", { class: "muted", id: "wsub" }), h("div", { class: "bar" }, h("i", { id: "wbar", style: "width:0" })), h("div", { id: "wlive", class: "col" })),
+      S.isHost ? h("div", { class: "card" }, h("p", { class: "muted" }, "誰かが戻ってこない? ここまでで終わりにして結果を見られます。"), h("div", {}, h("button", { onclick: endNow }, "ここで終了して結果を見る"))) : null);
+  }
+  function updWait() {
+    var g = derive();
+    $("#ord").replaceChildren(orderStrip(g));
+    $("#wtitle").textContent = nameOf(g.cur) + "さんが描いています";
+    $("#wsub").textContent = g.total === Infinity ? g.n + "枚完成" : g.n + " / " + g.total + " 枚完成";
+    $("#wbar").parentNode.hidden = g.total === Infinity;
+    $("#wbar").style.width = g.total === Infinity ? "0" : Math.round(g.n / g.total * 100) + "%";
+    var live = $("#wlive");
+    if (live.dataset.n === g.n + g.set.vis) return;
+    live.dataset.n = g.n + g.set.vis;
+    if (g.set.vis === "secret") live.replaceChildren(h("p", { class: "muted" }, "完全シークレット中です。絵は結果発表まで見えません。"));
+    else if (!g.last) live.replaceChildren(h("p", { class: "muted" }, "最初の絵ができるのを待っています。"));
+    else live.replaceChildren(h("h3", {}, "これまでの絵"), logStrip(g), h("p", { class: "muted" }, "赤く光っているのが最新です。何の絵か、考えながら待ちましょう。"));
+  }
+
+  /* ---------- album (this browser only, IndexedDB) ---------- */
+  var dbp = null;
+  function adb() {
+    return dbp || (dbp = new Promise(function (res, rej) {
+      if (!window.indexedDB) { rej(new Error("no idb")); return; }
+      var q = indexedDB.open("eshiri-album", 1);
+      q.onupgradeneeded = function () { q.result.createObjectStore("pics", { keyPath: "id" }); };
+      q.onsuccess = function () { res(q.result); };
+      q.onerror = function () { rej(q.error); };
+    }));
+  }
+  function tx(mode, fn) {
+    return adb().then(function (db) {
+      return new Promise(function (res, rej) {
+        var t = db.transaction("pics", mode), r = fn(t.objectStore("pics"));
+        t.oncomplete = function () { res(r && r.result); };
+        t.onerror = t.onabort = function () { rej(t.error); };
+      });
+    });
+  }
+  function albumAll() { return tx("readonly", function (st) { return st.getAll(); }); }
+  function albumDel(id) { return tx("readwrite", function (st) { st.delete(id); }); }
+  function saveAlbum(g) {
+    var gid = S.room.startedAt + "-" + S.code, recs = [], i, e, nx, names;
+    if (S.savedGid === gid) return;
+    S.savedGid = gid;
+    names = S.players.map(function (p) { return p.name; });
+    for (i = 0; i < g.n; i++) {
+      e = S.entries.get(String(i)); nx = S.entries.get(String(i + 1));
+      recs.push({ id: gid + "-" + i, gid: gid, i: i, ts: S.room.startedAt, room: S.code, author: nameOf(e.author), authorId: e.author, word: e.word,
+        answer: nx ? nx.guess : null, answerer: nx ? nameOf(nx.author) : null, players: names, strokes: e.strokes });
+    }
+    adb().then(function () { return tx("readwrite", function (st) { recs.forEach(function (r) { st.put(r); }); }); })
+      .then(function () { toast("この回の絵をアルバムに保存しました"); }, function () {});
+  }
+  function pad(n) { return n < 10 ? "0" + n : "" + n; }
+  function fmtDate(ts) { var d = new Date(ts); return d.getFullYear() + "年" + (d.getMonth() + 1) + "月" + d.getDate() + "日 " + pad(d.getHours()) + ":" + pad(d.getMinutes()); }
+  function vAlbum() {
+    var box = h("div", { class: "col" }, h("p", { class: "muted" }, "読み込み中…"));
+    var filter = "all", all = [];
+    var filterBox = h("div", {});
+    function mine(r) { return r.authorId ? r.authorId === S.pid : r.author === S.name; }
+    function draw() {
+      filterBox.replaceChildren(seg([["all", "一覧"], ["mine", "わたしが描いた絵"]], filter, true, function (v) { filter = v; draw(); }));
+      fillAlbum(box, filter === "mine" ? all.filter(mine) : all, load, filter === "mine");
+    }
+    function load() {
+      albumAll().then(function (list) { all = list; draw(); }, function () { box.replaceChildren(h("p", { class: "muted" }, "このブラウザではアルバムを使えません。")); });
+    }
+    load();
+    var armed = false, clearBtn = h("button", { class: "ghost" }, "アルバムを全部消す");
+    clearBtn.addEventListener("click", function () {
+      if (!armed) {
+        armed = true; clearBtn.textContent = "本当に全部消す? 元に戻せません";
+        setTimeout(function () { armed = false; clearBtn.textContent = "アルバムを全部消す"; }, 4000);
+        return;
+      }
+      armed = false; clearBtn.textContent = "アルバムを全部消す";
+      tx("readwrite", function (st) { st.clear(); }).then(function () { toast("アルバムを空にしました"); load(); }, function () { toast("消せませんでした"); });
+    });
+    return shell(
+      h("div", { class: "step" }, h("h2", {}, "アルバム"), h("button", { onclick: function () { S.album = false; render(); } }, "ホームに戻る")),
+      h("p", { class: "muted" }, "このブラウザで遊んだときの絵が、結果発表のあとに自動で入ります。ブラウザのデータを消すと、アルバムも消えます。"),
+      filterBox, box, h("div", {}, clearBtn));
+  }
+  function fillAlbum(box, list, reload, onlyMine) {
+    if (!list.length) { box.replaceChildren(h("p", { class: "muted" }, onlyMine ? "あなたが描いた絵はまだありません。" : "まだ絵がありません。遊ぶと、結果発表のあとにここへ入ります。")); return; }
+    var sorted = list.slice().sort(function (a, b) { return b.ts - a.ts || a.i - b.i; });
+    box.replaceChildren(h("div", { class: "grid" }, sorted.map(function (r) {
+      return h("button", { class: "thumb", onclick: function () { openPic(r, reload); } }, viewCanvas(r.strokes), h("span", {}, r.word), h("span", { class: "muted" }, r.author));
+    })));
+  }
+  function openPic(r, reload) {
+    var armed = false, ov;
+    function close() { ov.remove(); document.removeEventListener("keydown", onKey); }
+    function onKey(e) { if (e.key === "Escape") close(); }
+    var del = h("button", { class: "ghost", onclick: function () {
+      if (!armed) { armed = true; del.textContent = "本当に削除する?"; return; }
+      albumDel(r.id).then(function () { close(); reload(); }, function () { toast("削除できませんでした"); });
+    } }, "この絵を削除");
+    ov = h("div", { class: "ov", role: "dialog", "aria-modal": "true", onclick: function (e) { if (e.target === ov) close(); } },
+      h("div", { class: "card" },
+        viewCanvas(r.strokes),
+        h("dl", { class: "info" },
+          h("dt", {}, "日付"), h("dd", {}, fmtDate(r.ts)),
+          h("dt", {}, "描いた人"), h("dd", {}, r.author),
+          h("dt", {}, "お題"), h("dd", {}, "「" + r.word + "」"),
+          r.answer ? [h("dt", {}, "次の人の答え"), h("dd", {}, "「" + r.answer + "」 (" + r.answerer + ") ", same(r.answer, r.word) ? h("span", { class: "ok" }, "✓ 正解") : h("span", { class: "ng" }, "✗"))] : null,
+          h("dt", {}, "参加者"), h("dd", {}, r.players.join("、")),
+          h("dt", {}, "部屋"), h("dd", {}, r.room)),
+        h("div", { class: "row" }, h("button", { class: "primary", onclick: close }, "閉じる"), del)));
+    document.addEventListener("keydown", onKey);
+    document.body.append(ov);
+  }
+
+  function vReveal() {
+    var g = derive(), steps = [], i, hit = 0;
+    saveAlbum(g);
+    for (i = 0; i < g.n; i++) steps.push(S.entries.get(String(i)));
+    for (i = 1; i < steps.length; i++) if (same(steps[i].guess, steps[i - 1].word)) hit++;
+    var banner = g.nEnd ? nameOf(g.last.author) + "さんが「" + g.last.word + "」で「ん」! ゲームセット"
+      : g.n >= g.total ? g.n + "枚、最後までつながりました"
+      : (!S.room.ended && g.leftEnd) ? nameOf(g.cur) + "さんが退出したので終了しました(" + g.n + "枚)" : "途中で終了しました(" + g.n + "枚)";
+    /* しりとりの流れ: 次の人の答えが違っていたら、その答えを❌で出して正解を添える */
+    var chain = h("div", { class: "chain" }, steps.map(function (e, k) {
+      var nx = steps[k + 1], wrong = nx && !same(nx.guess, e.word);
+      return [k ? h("i", {}, "→") : null,
+        wrong ? h("span", { class: "ng" }, "❌" + nx.guess, h("small", {}, "(正解: " + e.word + ")")) : h("span", {}, e.word)];
+    }));
+    var minis = steps.map(function (e) { return h("div", { class: "mini" }, viewCanvas(e.strokes), h("b", {}, e.word), h("span", { class: "muted" }, nameOf(e.author))); });
+    var cards = steps.map(function (e, k) {
+      var prev = k > 0 ? steps[k - 1] : null, ok = prev && same(e.guess, prev.word);
+      return h("div", { class: "sc" },
+        h("div", { class: "who" }, h("b", {}, (k + 1) + "枚目"), nameOf(e.author)),
+        prev ? h("div", { class: "g" }, "前の絵への答え「" + e.guess + "」 ", ok ? h("span", { class: "ok" }, "✓ 正解") : h("span", { class: "ng" }, "✗ 正解は「" + prev.word + "」")) : null,
+        viewCanvas(e.strokes), h("div", { class: "w" }, "「" + e.word + "」"));
+    });
+    var againBtn = h("button", { class: "primary", onclick: playAgain }, "もう一度遊ぶ");
+    return shell(
+      h("div", { class: "col", style: "gap:10px" }, h("h1", {}, "結果発表"), h("p", { class: "quote" }, banner),
+        steps.length > 1 ? h("p", { class: "muted" }, "答えが合っていた数: " + hit + " / " + (steps.length - 1)) : null),
+      h("div", { class: "card" }, h("h3", {}, "しりとりの流れ"), chain),
+      h("div", { class: "step" }, h("h3", {}, "全部の絵"), againBtn),
+      h("div", { class: "strip", "aria-label": "全体の流れ" }, minis),
+      h("div", { class: "steps" }, cards),
+      h("div", {}, h("button", { onclick: backHome }, "ホームに戻る")));
+  }
+
+  /* ---------- networking (PeerJS: host's browser holds the game state) ---------- */
+  function copy(t, msg) {
+    try { navigator.clipboard.writeText(t).then(function () { toast(msg); }, function () { toast("コピーできませんでした: " + t); }); }
+    catch (e) { toast("コピーできませんでした: " + t); }
+  }
+  function setHash(code) { try { location.hash = code ? "room-" + code : ""; } catch (e) {} }
+  function resetNet() {
+    try { if (peer) peer.destroy(); } catch (e) {}
+    peer = null; hostConn = null; conns = {};
+    S.isHost = false; S.room = null; S.roomReady = false; S.players = []; S.entries = new Map();
+  }
+  function backHome() {
+    var code = S.code; S.code = null;
+    if (hostConn && hostConn.open && S.room) { try { hostConn.send({ t: "leave" }); } catch (e) {} }
+    resetNet(); ls("room", null); ls("role", null); if (code) ls("host." + code, null);
+    setHash(""); render();
+  }
+  function bcast(m) { Object.keys(conns).forEach(function (k) { try { conns[k].conn.send(m); } catch (e) {} }); }
+  function saveHost() { if (S.isHost) ls("host." + S.code, JSON.stringify({ room: S.room, players: S.players, entries: Array.from(S.entries) })); }
+  function setRoom(r) { S.room = r; bcast({ t: "room", room: r }); saveHost(); render(); }
+
+  function hostApply(m, pid) {
+    var d, e, ent, er;
+    if (m.t === "join") {
+      if (!S.players.some(function (p) { return p.id === pid; })) {
+        if (S.room.phase !== "lobby") return { err: "その部屋はもう始まっています" };
+        if (S.players.length >= MAXP) return { err: "その部屋は満員です(" + MAXP + "人まで)" };
+        S.players.push({ id: pid, name: String(m.name || "名無し").slice(0, 12), joinedAt: Date.now() });
+        bcast({ t: "players", players: S.players });
+      }
+    } else if (m.t === "leave") {
+      if (S.room.phase === "lobby") { S.players = S.players.filter(function (p) { return p.id !== pid; }); bcast({ t: "players", players: S.players }); }
+      else if (S.room.phase === "play" && (S.room.order || []).indexOf(pid) >= 0 && (S.room.left || []).indexOf(pid) < 0) {
+        S.room = Object.assign({}, S.room, { left: (S.room.left || []).concat(pid) }); bcast({ t: "room", room: S.room });
+      }
+    } else if (m.t === "again") {
+      /* 同じメンバーでロビーに戻る(退出した人は外す) */
+      if (S.room.phase !== "play") return {};
+      var left = S.room.left || [];
+      S.players = S.players.filter(function (p) { return left.indexOf(p.id) < 0; });
+      S.entries = new Map();
+      S.room = { host: S.room.host, phase: "lobby", settings: S.room.settings || Object.assign({}, DEFAULTS), createdAt: Date.now() };
+      bcast({ t: "reset", room: S.room, players: S.players });
+    } else if (m.t === "entry") {
+      if (S.room.phase !== "play") return { err: "ゲーム中ではありません" };
+      d = derive();
+      if (d.finished || d.cur !== pid) return { err: "いまはあなたの番ではありません" };
+      e = m.entry || {};
+      ent = { t: d.turn, author: pid, word: norm(e.word), strokes: e.strokes };
+      if (d.turn > 0) ent.guess = norm(e.guess);
+      er = checkTurn(S.room, S.entries, d.turn, ent);
+      if (er) return { err: er };
+      if (JSON.stringify(ent.strokes).length > 260000) return { err: "絵が大きすぎます" };
+      S.entries.set(String(d.turn), ent); bcast({ t: "entry", key: String(d.turn), entry: ent });
+    }
+    saveHost(); render();
+    return {};
+  }
+  function onHostConnection(conn) {
+    conn.on("data", function (m) {
+      if (!m || typeof m !== "object") return;
+      var c, r, pid;
+      if (m.t === "join") {
+        pid = cleanId(m.pid || ""); r = pid ? hostApply(m, pid) : { err: "参加できませんでした" };
+        if (r && r.err) { conn.send({ t: "err", msg: r.err }); return; }
+        conns[conn.peer] = { conn: conn, pid: pid };
+        conn.send({ t: "state", room: S.room, players: S.players, entries: Array.from(S.entries) });
+        return;
+      }
+      c = conns[conn.peer]; if (!c) return;
+      r = hostApply(m, c.pid);
+      if (r && r.err) conn.send({ t: "rej", msg: r.err });
+    });
+    conn.on("close", function () { delete conns[conn.peer]; });
+  }
+  function startHost(code, restore, tries) {
+    var p = new Peer(PREFIX + code); peer = p;
+    p.on("open", function () {
+      S.isHost = true; S.code = code;
+      if (restore) { S.room = restore.room; S.players = restore.players; S.entries = new Map(restore.entries); }
+      else { S.room = { host: S.pid, phase: "lobby", settings: Object.assign({}, DEFAULTS), createdAt: Date.now() }; S.players = [{ id: S.pid, name: S.name, joinedAt: Date.now() }]; S.entries = new Map(); }
+      S.roomReady = true; ls("room", code); ls("role", "host"); setHash(code); saveHost(); render();
+    });
+    p.on("connection", onHostConnection);
+    p.on("disconnected", function () { try { p.reconnect(); } catch (e) {} });
+    p.on("error", function (e) {
+      if (e.type === "unavailable-id") {
+        try { p.destroy(); } catch (x) {}
+        if (!restore && (tries || 0) < 6) { startHost(genCode(), null, (tries || 0) + 1); return; }
+        toast(restore ? "部屋を復元できませんでした。少し待ってからもう一度開いてください" : "部屋をつくれませんでした");
+        if (restore) backHome();
+        return;
+      }
+      if (e.type === "disconnected" || e.type === "network") return;
+      toast("接続でエラーが起きました(" + e.type + ")");
+    });
+  }
+  function createRoom() { resetNet(); startHost(genCode(), null, 0); }
+
+  function joinRoom(code, silent) {
+    if (!/^[A-Z]{4}$/.test(code)) { toast("部屋コードは英字4文字です"); return; }
+    resetNet();
+    S.joining = true; render();
+    var p = new Peer(); peer = p;
+    var opened = false, entered = false;
+    function fail(msg) { if (!silent) toast(msg); if (!entered) { S.joining = false; resetNet(); if (silent) { ls("room", null); ls("role", null); } lastKey = null; render(); } }
+    p.on("open", function () {
+      var conn = p.connect(PREFIX + code, { reliable: true }); hostConn = conn;
+      conn.on("open", function () { opened = true; conn.send({ t: "join", pid: S.pid, name: S.name }); });
+      conn.on("data", function (m) {
+        if (!m || typeof m !== "object") return;
+        if (m.t === "err") { fail(m.msg); return; }
+        if (m.t === "rej") { toast(m.msg); if (S.rejCb) S.rejCb(); return; }
+        if (m.t === "state") {
+          entered = true; S.joining = false; S.code = code; S.isHost = false;
+          S.room = m.room; S.players = m.players; S.entries = new Map(m.entries); S.roomReady = true;
+          ls("room", code); ls("role", "client"); setHash(code);
+        } else if (m.t === "reset") { S.room = m.room; S.players = m.players; S.entries = new Map(); }
+        else if (m.t === "room") S.room = m.room;
+        else if (m.t === "players") S.players = m.players;
+        else if (m.t === "entry") S.entries.set(m.key, m.entry);
+        render();
+      });
+      conn.on("close", function () {
+        if (!entered || S.code !== code) return;
+        var fin = S.room && S.room.phase === "play" && derive().finished;
+        if (fin) { toast("ホストが退出しました。結果はこのまま見られます"); return; }
+        toast("ホストとの接続が切れました"); backHome();
+      });
+    });
+    p.on("error", function (e) { fail(e.type === "peer-unavailable" ? "その部屋は見つかりません" : "接続でエラーが起きました(" + e.type + ")"); });
+    setTimeout(function () { if (!opened && !entered) fail("その部屋は見つかりません"); }, 9000);
+  }
+
+  /* ---------- actions ---------- */
+  function setOpt(k, v) {
+    if (!S.isHost) return;
+    var set = Object.assign({}, S.room.settings || DEFAULTS); set[k] = v;
+    setRoom(Object.assign({}, S.room, { settings: set }));
+  }
+  function startGame() {
+    if (!S.isHost || S.players.length < 2) return;
+    setRoom(Object.assign({}, S.room, {
+      phase: "play", order: shuffle(S.players.map(function (p) { return p.id; })),
+      topic: TOPICS[Math.floor(Math.random() * TOPICS.length)], startedAt: Date.now(), ended: false
+    }));
+  }
+  function playAgain() {
+    if (S.isHost) hostApply({ t: "again" }, S.pid);
+    else if (hostConn && hostConn.open) hostConn.send({ t: "again" });
+    else toast("ホストとつながっていません");
+  }
+  function endNow() { if (S.isHost && S.entries.size > 0) setRoom(Object.assign({}, S.room, { ended: true })); else toast("まだ1枚も完成していません"); }
+  function submit(ent) {
+    if (S.isHost) {
+      var r = hostApply({ t: "entry", entry: ent }, S.pid);
+      if (r && r.err) { toast(r.err); return Promise.resolve(false); }
+      return new Promise(function (res) { setTimeout(function () { res(false); }, 8000); });
+    }
+    if (!(hostConn && hostConn.open)) { toast("ホストとつながっていません"); return Promise.resolve(false); }
+    hostConn.send({ t: "entry", entry: ent });
+    return new Promise(function (res) { S.rejCb = function () { res(false); }; setTimeout(function () { res(false); }, 8000); });
+  }
+
+  /* ---------- boot ---------- */
+  window.addEventListener("hashchange", function () { if (!S.code && !tryInvite() && lastKey === "home") { lastKey = null; render(); } });
+  S.name = ls("name") || "";
+  S.pid = ls("pid");
+  if (!S.pid) { S.pid = cleanId(Math.random().toString(36).slice(2, 10) + Date.now().toString(36)); ls("pid", S.pid); }
+  render();
+  (function resume() {
+    var saved = ls("room"), role = ls("role"), raw, st = null;
+    if (tryInvite()) return;
+    if (!saved || !/^[A-Z]{4}$/.test(saved)) return;
+    if (role === "host") {
+      raw = ls("host." + saved);
+      try { st = raw && JSON.parse(raw); } catch (e) {}
+      if (st && st.room) startHost(saved, st, 0); else { ls("room", null); ls("role", null); }
+    } else joinRoom(saved, true);
+  })();
+})();
+</script>
+</body>
+</html>
