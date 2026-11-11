@@ -612,20 +612,10 @@ dl.info dd { margin: 0; overflow-wrap: anywhere; }
       albumAll().then(function (list) { all = list; draw(); }, function () { box.replaceChildren(h("p", { class: "muted" }, "このブラウザではアルバムを使えません。")); });
     }
     load();
-    var armed = false, clearBtn = h("button", { class: "ghost" }, "アルバムを全部消す");
-    clearBtn.addEventListener("click", function () {
-      if (!armed) {
-        armed = true; clearBtn.textContent = "本当に全部消す? 元に戻せません";
-        setTimeout(function () { armed = false; clearBtn.textContent = "アルバムを全部消す"; }, 4000);
-        return;
-      }
-      armed = false; clearBtn.textContent = "アルバムを全部消す";
-      tx("readwrite", function (st) { st.clear(); }).then(function () { toast("アルバムを空にしました"); load(); }, function () { toast("消せませんでした"); });
-    });
     return shell(
       h("div", { class: "step" }, h("h2", {}, "アルバム"), h("button", { onclick: function () { S.album = false; render(); } }, "ホームに戻る")),
       h("p", { class: "muted" }, "このブラウザで遊んだときの絵が、結果発表のあとに自動で入ります。ブラウザのデータを消すと、アルバムも消えます。"),
-      filterBox, box, h("div", {}, clearBtn));
+      filterBox, box);
   }
   function fillAlbum(box, list, reload, onlyMine) {
     if (!list.length) { box.replaceChildren(h("p", { class: "muted" }, onlyMine ? "あなたが描いた絵はまだありません。" : "まだ絵がありません。遊ぶと、結果発表のあとにここへ入ります。")); return; }
@@ -650,8 +640,7 @@ dl.info dd { margin: 0; overflow-wrap: anywhere; }
           h("dt", {}, "描いた人"), h("dd", {}, r.author),
           h("dt", {}, "お題"), h("dd", {}, "「" + r.word + "」"),
           r.answer ? [h("dt", {}, "次の人の答え"), h("dd", {}, "「" + r.answer + "」 (" + r.answerer + ") ", same(r.answer, r.word) ? h("span", { class: "ok" }, "✓ 正解") : h("span", { class: "ng" }, "✗"))] : null,
-          h("dt", {}, "参加者"), h("dd", {}, r.players.join("、")),
-          h("dt", {}, "部屋"), h("dd", {}, r.room)),
+          h("dt", {}, "参加者"), h("dd", {}, r.players.join("、"))),
         h("div", { class: "row" }, h("button", { class: "primary", onclick: close }, "閉じる"), del)));
     document.addEventListener("keydown", onKey);
     document.body.append(ov);
