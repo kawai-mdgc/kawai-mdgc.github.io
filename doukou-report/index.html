@@ -261,7 +261,7 @@ const startOfDay=d=>new Date(d.getFullYear(),d.getMonth(),d.getDate());
 let notifs=[];
 function buildNotifs(){
   const out=[];if(!me)return out;
-  if(adminUI())requests.slice().sort((a,b)=>String(a.at)<String(b.at)?-1:1).forEach(x=>out.push({kind:'info',title:'編集権限の申請',text:`${x.name}さんが編集権限を申請しています。`,go:{tab:'settings'}}));
+  if(adminUI())requests.slice().sort((a,b)=>String(a.at)<String(b.at)?-1:1).forEach(x=>out.push({kind:'info',title:'編集権限の申請',text:`${x.name}さんが編集権限を申請しています。押すと内容を確認できます。`,go:{req:x.email}}));
   if(me.canEdit){
     const cur=curIssue(),[y,mo]=cur.split('-').map(Number),dl=new Date(y,mo-2,S.deadlineDay),diff=Math.round((startOfDay(dl)-startOfDay(nowD()))/86400000),md=`${dl.getMonth()+1}/${dl.getDate()}`;
     if(diff<=1)S.services.forEach(sv=>{
@@ -276,7 +276,21 @@ function updateBell(){
   if(!me)return;notifs=buildNotifs();const b=$('#bellBadge'),n=notifs.filter(x=>x.go).length;
   b.textContent=n||'';b.style.display=n?'grid':'none';
   $('#bellMenu').innerHTML=`<div class="nhead">通知</div>`+(notifs.length?notifs.map((x,i)=>`<button class="nitem ${x.kind}" data-n="${i}"><b>${esc(x.title)}</b>${esc(x.text)}</button>`).join(''):'<div class="nempty">新しい通知はありません。</div>');
-  document.querySelectorAll('#bellMenu [data-n]').forEach(btn=>btn.onclick=()=>{const g=notifs[+btn.dataset.n].go;$('#bellMenu').classList.remove('open');if(!g)return;guardLeave(()=>{if(g.open)openReport(g.open[0],g.open[1],'home');else{ui.tab=g.tab;render();}});});
+  document.querySelectorAll('#bellMenu [data-n]').forEach(btn=>btn.onclick=()=>{const g=notifs[+btn.dataset.n].go;$('#bellMenu').classList.remove('open');if(!g)return;if(g.req){showRequest(g.req);return;}guardLeave(()=>{if(g.open)openReport(g.open[0],g.open[1],'home');else{ui.tab=g.tab;render();}});});
+}
+/* 編集権限の申請の内容を確認して、その場で承認・却下できる */
+function showRequest(email){
+  const x=requests.find(r=>r.email===email);if(!x){toast('この申請はすでに処理されています');return;}
+  const d=document.createElement('div');d.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);display:grid;place-items:center;z-index:30;padding:20px';
+  d.innerHTML=`<div class="card" style="width:min(440px,92vw);margin:0;padding:24px 22px"><h3 style="font-size:16px;margin-bottom:14px">編集権限の申請</h3>
+   <div style="display:grid;grid-template-columns:90px 1fr;gap:8px 10px;font-size:14px;margin-bottom:14px"><span class="note">名前</span><b>${esc(x.name)}</b><span class="note">メールアドレス</span><span>${esc(x.email)}</span><span class="note">申請日時</span><span>${fmt(x.at)}</span><span class="note">いまの権限</span><span>閲覧のみ</span></div>
+   <p class="note" style="margin:0 0 18px">承認すると、この人はレポートの作成・編集・削除ができるようになります。</p>
+   <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap"><button class="btn" id="rqClose">閉じる</button><button class="btn" id="rqNo">却下</button><button class="btn ok" id="rqYes">承認する</button></div></div>`;
+  document.body.appendChild(d);
+  const done=async(fn,msg)=>{d.remove();try{await fn();toast(msg);if(ui.tab==='settings')render();else updateBell();}catch(e){toast('失敗しました：'+(e.message||e));}};
+  d.querySelector('#rqClose').onclick=()=>d.remove();
+  d.querySelector('#rqYes').onclick=()=>done(()=>store.approve(x.email),`${x.name}さんの編集権限を承認しました`);
+  d.querySelector('#rqNo').onclick=()=>done(()=>store.reject(x.email),'却下しました');
 }
 const VA_NAME={admin:'管理者',manager:'事業部長',member:'メンバー'};
 function setViewAs(v){
@@ -347,7 +361,7 @@ const LocalStore={
   async init(){try{const j=JSON.parse(localStorage.getItem('doukou-demo-v1'));if(j)S=j;}catch(e){}indexSnap();},
   _w(){try{localStorage.setItem('doukou-demo-v1',JSON.stringify(S));}catch(e){}},
   async setReport(){this._w();},async delReport(){this._w();},async setConfig(){this._w();},
-  async requestEdit(){},async approve(e){access.editors=[...new Set([...access.editors,e])];requests=requests.filter(x=>x.email!==e);},
+  async requestEdit(){},async approve(e){access.editors=[...new Set([...access.editors,e.toLowerCase()])];requests=requests.filter(x=>x.email!==e);},
   async reject(e){requests=requests.filter(x=>x.email!==e);},async revoke(e){access.editors=access.editors.filter(x=>x!==e);}
 };
 /* デモ表示（?demo=manager／?demo=member）：Firebaseにはつながず、架空のサンプルを表示する。保存はされない */
@@ -392,7 +406,7 @@ const FireStore={
     else db.collection('requests').doc(me.email).onSnapshot(d=>{myReq=d.exists?d.data():null;if(started&&ui.tab==='home'&&!isTyping())render();},()=>{});
   },
   requestEdit(){return db.collection('requests').doc(me.email).set({email:me.email,name:me.name,at:new Date().toISOString()});},
-  async approve(email){await db.collection('access').doc('main').set({editors:[...new Set([...access.editors,email])]});await db.collection('requests').doc(email).delete();},
+  async approve(email){await db.collection('access').doc('main').set({editors:[...new Set([...access.editors,email.toLowerCase()])]});await db.collection('requests').doc(email).delete();},
   reject(email){return db.collection('requests').doc(email).delete();},
   revoke(email){return db.collection('access').doc('main').set({editors:access.editors.filter(x=>x!==email)});},
   setReport(m,id,r){return db.collection('reports').doc(key(m,id)).set({month:m,service:id,report:clone(r)});},
@@ -766,7 +780,7 @@ function viewSettings(){
    <div class="card"><h3>追加で承認した編集者 <small>${access.editors.length}名</small></h3>${access.editors.length?access.editors.map(e=>`<div class="reqrow"><span>${esc(e)}</span><span class="spacer"></span><button class="btn sm" data-rv="${esc(e)}">権限を外す</button></div>`).join(''):'<p class="note" style="margin:0">追加で承認した人はいません。</p>'}<p class="note" style="margin:10px 0 0">最初から編集権限のあるメンバー（設定ファイルで固定）と管理者は、ここには表示されません。</p></div>`);
   $('#setHome').onclick=()=>{ui.tab='home';render();};
   const run=async(fn,msg)=>{try{await fn();toast(msg);render();}catch(e){toast('失敗しました：'+(e.message||e));}};
-  document.querySelectorAll('[data-ap]').forEach(b=>b.onclick=()=>run(()=>store.approve(b.dataset.ap.toLowerCase()),'承認しました。編集できるようになります'));
+  document.querySelectorAll('[data-ap]').forEach(b=>b.onclick=()=>run(()=>store.approve(b.dataset.ap),'承認しました。編集できるようになります'));
   document.querySelectorAll('[data-rj]').forEach(b=>b.onclick=()=>run(()=>store.reject(b.dataset.rj),'却下しました'));
   document.querySelectorAll('[data-rv]').forEach(b=>{b.onclick=()=>{if(confirm(b.dataset.rv+' の編集権限を外しますか？'))run(()=>store.revoke(b.dataset.rv),'権限を外しました');};});
 }
