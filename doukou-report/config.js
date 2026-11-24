@@ -24,6 +24,8 @@ window.APP_CONFIG = {
     "b98013a941ecd7b9c63b9836cd9bb80ee998685a4ae9a842a731fb9125566306",
     "11b6eee7f09321e58e52aab284ab2202d7c8e8652a4d48d5f41cd2f45b5fca55"
   ],
+  // テスト用：この人のログイン中だけ、日付をずらして表示する（ほかの人には影響しない）。不要になったら削除する
+  timeTravel: { "0ba11eb556e64819154d3233ddee4b1f907cb8b6980de9582499e8acdc8b8912": "2026-12-01" },
   editorHashes: [
     "4467215d0c079012bca2b8305a5d7e6df3098d367a0a08807c252884054ef617",
     "d3ed6f4c6c2174d9fcd42a9e7cd1f57fbd614526394c4a1e92cd46062ab6681a",

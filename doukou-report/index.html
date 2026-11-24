@@ -368,7 +368,7 @@ async function boot(){
     if(!u){showLogin();return;}
     if(!u.email||!u.email.toLowerCase().endsWith('@'+DOMAIN)||!u.emailVerified){await auth.signOut();showLogin(`@${DOMAIN} のGoogleアカウントでログインしてください。`);return;}
     const h=await sha(u.email.toLowerCase());
-    me={name:u.displayName||u.email,email:u.email,photo:u.photoURL,isAdmin:(CFG.adminHashes||[]).includes(h),baseEditor:(CFG.editorHashes||[]).includes(h)};
+    me={name:u.displayName||u.email,email:u.email,photo:u.photoURL,isAdmin:(CFG.adminHashes||[]).includes(h),baseEditor:(CFG.editorHashes||[]).includes(h),sim:(CFG.timeTravel||{})[h]||null};
     store=FireStore;
     try{await store.init();}catch(e){await auth.signOut();showLogin('データを読み込めませんでした（権限がありません）。');return;}
     startApp();
@@ -388,7 +388,7 @@ const mLabel=m=>m.slice(0,4)+'年'+Number(m.slice(5))+'月号';
 function prevMonth(m){const [y,mo]=m.split('-').map(Number),d=new Date(y,mo-2,1);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');}
 function getReport(m,id){S.reports[m]??={};S.reports[m][id]??=emptyReport();return S.reports[m][id];}
 const peek=(m,id)=>(S.reports[m]||{})[id]||emptyReport();
-function deadlineInfo(){const [y,mo]=curIssue().split('-').map(Number),dl=new Date(y,mo-2,S.deadlineDay,23,59,59),days=Math.ceil((dl-new Date())/86400000),t=`${dl.getMonth()+1}/${S.deadlineDay} 締切`;
+function deadlineInfo(){const [y,mo]=curIssue().split('-').map(Number),dl=new Date(y,mo-2,S.deadlineDay,23,59,59),days=Math.ceil((dl-nowD())/86400000),t=`${dl.getMonth()+1}/${S.deadlineDay} 締切`;
   return days<0?`<span class="late">${t}（${-days}日超過）</span>`:`<b>${t}</b>（あと${days}日）`;}
 
 /* 検証 */
@@ -459,7 +459,8 @@ function render(){
 
 
 /* 現在号：今月の翌月号（例：11月中は12月号）。号の締切は、その前月の12日（12月号は11/12）。過去の号は自動でログへ */
-function curIssue(){const d=new Date();let y=d.getFullYear(),m=d.getMonth()+2;if(m>12){m-=12;y++;}return y+'-'+String(m).padStart(2,'0');}
+const nowD=()=>me&&me.sim?new Date(me.sim+'T12:00:00'):new Date();   // テスト用：設定した人だけ、日付をずらして表示できる
+function curIssue(){const d=nowD();let y=d.getFullYear(),m=d.getMonth()+2;if(m>12){m-=12;y++;}return y+'-'+String(m).padStart(2,'0');}
 const isPast=m=>m<curIssue();
 let logPath={y:null,s:null};
 
@@ -474,11 +475,12 @@ function viewHome(){
     return `<div class="gcell hc" data-open="${m}|${s.id}">${can?`<button class="more" data-more="${m}|${s.id}" aria-label="メニュー">･･･</button><div class="cmenu" data-menu="${m}|${s.id}"><button data-rm="${m}|${s.id}">削除</button></div>`:''}<div class="cap"><b>${esc(s.name)}</b><span>${mShort(m)}</span></div>${scaled(pageHtml(s,r,m),200)}
     <div><span class="pill ${STATUS[st][1]}">${STATUS[st][0]}</span> <span class="note">${r.updatedBy?esc(r.updatedBy.name)+' '+fmt(r.updatedAt):''}</span></div>
 </div>`;};
-  $('#main').innerHTML=`<div class="pane"><div style="display:flex;align-items:center;gap:12px;margin-bottom:6px;flex-wrap:wrap"><h2 style="margin:0">${mLabel(cur)}</h2><span class="pill st-submitted">現在号</span><span class="deadline">${deadlineInfo()}</span><span class="spacer"></span><button class="btn" id="goLog">📁 ログ</button>${can?'<button class="btn pri" id="new">＋ 新規作成</button>':''}</div>
+  $('#main').innerHTML=`<div class="pane"><div style="display:flex;align-items:center;gap:12px;margin-bottom:6px;flex-wrap:wrap"><h2 style="margin:0">${mLabel(cur)}</h2><span class="pill st-submitted">現在号</span>${me.sim?`<button class="btn sm" id="endSim" title="自分だけの表示です">テスト表示中：${me.sim.replace(/-0?/g,'/')} として表示 ✕</button>`:''}<span class="deadline">${deadlineInfo()}</span><span class="spacer"></span><button class="btn" id="goLog">📁 ログ</button>${can?'<button class="btn pri" id="new">＋ 新規作成</button>':''}</div>
    <p class="note" style="margin:0 0 18px">現在号のレポートが表示されます。号が変わると、過去の号は自動で「ログ」（事業部→年のフォルダ）に移ります。</p>
    ${can?'':`<div class="viewonly"><span>閲覧のみのアカウントです。編集・削除をするには、権限が必要です。</span>${myReq?'<b>権限を申請中です。承認されるまでお待ちください。</b>':'<button class="btn sm pri" id="reqEdit">編集権限を申請する</button>'}</div>`}
    ${missing.length&&can?`<div class="card" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><b style="font-size:13px">${mLabel(cur)} 未提出：</b>${missing.map(s=>`<button class="btn sm" data-mk="${s.id}"><span class="dot" style="background:${s.color};display:inline-block;margin-right:6px"></span>${esc(s.name)}</button>`).join('')}</div>`:''}
    ${ents.length?`<div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(236px,1fr))">${ents.map(card).join('')}</div>`:'<div class="card" style="text-align:center;padding:48px"><p class="note">現在号のレポートはまだありません。「＋ 新規作成」から始めましょう。</p></div>'}</div>`;
+  $('#endSim')&&($('#endSim').onclick=()=>{me.sim=null;render();toast('テスト表示を終了しました');});
   $('#new')&&($('#new').onclick=()=>newDialog());
   $('#reqEdit')&&($('#reqEdit').onclick=async()=>{try{await store.requestEdit();myReq={email:me.email,name:me.name,at:new Date().toISOString()};toast('権限を申請しました。管理者の承認をお待ちください');render();}catch(e){toast('申請に失敗しました：'+(e.message||e));}});
   $('#goLog').onclick=()=>{logPath={y:null,s:null};ui.tab='log';render();};
