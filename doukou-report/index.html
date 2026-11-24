@@ -148,6 +148,9 @@ body:not(.authed) .login{display:grid}
 .pres{position:absolute;right:12px;bottom:12px;display:flex;padding-left:8px}
 .pres .pa{width:24px;height:24px;border-radius:50%;border:2px solid #e9e9e4;background:#6b4bd6;color:#fff;font-size:9px;font-weight:700;display:grid;place-items:center;overflow:hidden;margin-left:-8px;box-sizing:content-box}
 .pres .pa img{width:100%;height:100%;object-fit:cover;display:block}
+.pres.inl{position:static;display:inline-flex;vertical-align:middle;margin-left:14px;padding-left:8px}
+.pres.inl .pa{border-color:#fff}
+.pres .pa.me{outline:2px solid #2456d6;outline-offset:0}
 .pres .pa.more{background:#6b7280}
 .hc{position:relative;cursor:pointer;transition:transform .15s,box-shadow .15s,background .15s}
 .hc:hover{transform:translateY(-3px);box-shadow:0 10px 24px rgba(0,0,0,.14);background:#dedfd8}
@@ -356,8 +359,11 @@ function showDrive(k){
 let presence=[],lastPresSig=null;
 const initials=nm=>{nm=(nm||'?').trim();return /[\u3040-\u30ff\u3400-\u9fff]/.test(nm)?nm.replace(/\s/g,'').slice(-2):nm.slice(0,1).toUpperCase();};
 function presHtml(m,id){
-  const l=presence.filter(p=>p.month===m&&p.svc===id&&Date.now()-p.ts<90000);if(!l.length)return '';
-  const av=p=>`<span class="pa" title="${esc(p.name)}">${p.photo?`<img src="${esc(p.photo)}" referrerpolicy="no-referrer" alt="">`:esc(initials(p.name))}</span>`;
+  const l=presence.filter(p=>p.month===m&&p.svc===id&&Date.now()-p.ts<90000);
+  const mine=me&&me.email?me.email.toLowerCase():'';
+  if(me&&ui.tab==='edit'&&ui.month===m&&ui.svc===id&&!l.some(p=>String(p.email||'').toLowerCase()===mine))l.unshift({name:me.name,photo:me.photo||'',email:mine});   // 自分も、開いている間は出す（通信を待たずに）
+  if(!l.length)return '';
+  const av=p=>`<span class="pa${mine&&String(p.email||'').toLowerCase()===mine?' me':''}" title="${esc(p.name)}${mine&&String(p.email||'').toLowerCase()===mine?'（あなた）':''}">${p.photo?`<img src="${esc(p.photo)}" referrerpolicy="no-referrer" alt="">`:esc(initials(p.name))}</span>`;
   return l.slice(0,3).map(av).join('')+(l.length>3?`<span class="pa more" title="${esc(l.slice(3).map(p=>p.name).join('、'))}">+${l.length-3}</span>`:'');
 }
 const paintPresence=()=>document.querySelectorAll('.pres').forEach(el=>{el.innerHTML=presHtml(el.dataset.pm,el.dataset.ps);});
@@ -799,7 +805,7 @@ function viewEdit(){
   $('#main').innerHTML=`
   <div class="form">
     <button class="btn sm" id="back" style="margin-bottom:14px">← ${ui.back==='log'?'ログに戻る':'ホームに戻る'}</button>
-    <h2>${esc(svc.name)} <small style="font-size:13px;color:var(--sub);font-weight:600">${mLabel(m)}</small></h2>
+    <h2>${esc(svc.name)} <small style="font-size:13px;color:var(--sub);font-weight:600">${mLabel(m)}</small><span class="pres inl" data-pm="${m}" data-ps="${svc.id}">${presHtml(m,svc.id)}</span></h2>
     <div class="meta">${metaHtml(m,svc,r)}</div>
     ${r.note?`<div class="errs">差し戻しコメント：${esc(r.note)}</div>`:''}
     ${locked?'<div class="viewonly">閲覧のみです。編集するには、ホームから「編集権限を申請する」を押してください。</div>':''}
