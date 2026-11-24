@@ -172,7 +172,7 @@ body:not(.authed) .login{display:grid}
 /* 動向レポート作成ツール（プロトタイプ）
    Googleログイン(@madoguchi.inc限定)＋Firestoreに保存。config.js 未設定時はデモ（ブラウザ内保存） */
 const L = {updTitle:40, updBody:280, planTitle:40, planBody:160, count:600, ad:600, advice:200, message:480};
-const STATUS = {empty:['未入力','st-empty'], draft:['保存済み','st-approved'], submitted:['保存済み','st-approved'], approved:['保存済み','st-approved']};
+const STATUS = {empty:['未入力','st-empty'], draft:['入力中','st-draft'], submitted:['提出済み','st-submitted'], approved:['提出済み','st-submitted']};
 const LS = 'doukou-report-v5';
 
 const DEFAULT = {deadlineDay:12, services:[
@@ -476,10 +476,10 @@ function viewEdit(){
       <button class="btn" id="copyPrev" ${locked?'disabled':''}>前月の内容をコピー</button>
       <button class="btn" id="bulk" ${locked?'disabled':''}>テキスト一括貼り付け</button>
       <span class="spacer"></span>
-      <button class="btn pri" id="saveBtn">保存</button>
+      ${r.status==='submitted'||r.status==='approved'?'<button class="btn" id="withdraw">提出を取り下げる</button>':'<button class="btn pri" id="submitBtn">提出</button>'}
     </div>
-    <div class="card" style="margin-top:18px"><h3>作成・編集履歴</h3><div class="hist">${(r.history||[]).some(h=>['create','edit','import'].includes(h.action))?[...r.history].filter(h=>['create','edit','import'].includes(h.action)).reverse().slice(0,12).map(h=>`${fmt(h.at)}　<b>${esc(h.by.name)}</b>　${ACT[h.action]||h.action}`).join('<br>'):'まだ履歴がありません（最初の入力から記録されます）'}</div></div>
-    <p class="note" style="margin-top:10px">入力内容は自動でも保存されます。誰がいつ編集したかが記録されます。</p>
+    <div class="card" style="margin-top:18px"><h3>作成・編集履歴</h3><div class="hist">${(r.history||[]).some(h=>['create','edit','import','submit','withdraw'].includes(h.action))?[...r.history].filter(h=>['create','edit','import','submit','withdraw'].includes(h.action)).reverse().slice(0,12).map(h=>`${fmt(h.at)}　<b>${esc(h.by.name)}</b>　${ACT[h.action]||h.action}`).join('<br>'):'まだ履歴がありません（最初の入力から記録されます）'}</div></div>
+    <p class="note" style="margin-top:10px">入力内容は自動で保存されます。入力が終わったら「提出」を押してください。誰がいつ編集したかが記録されます。</p>
   </div>
   <div class="previewCol"><div class="lay" id="lay"></div><div id="pv"></div><button class="btn sm" id="pdf1">このサービスのPDFを保存</button></div>`;
   $('#back').onclick=()=>{ui.tab=ui.back||'home';render();};
@@ -495,12 +495,14 @@ function viewEdit(){
   $('#bulk')?.addEventListener('click',()=>bulkDialog(r));
   document.querySelectorAll('[data-add]').forEach(b=>b.onclick=()=>{const k=b.dataset.add;r['n_'+k]=Math.min(3,nShow(k)+1);if(r.status==='empty')r.status='draft';save();render();});
   document.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{const [k,i]=b.dataset.del.split(':');const n=nShow(k);r[k].splice(+i,1);r[k].push({title:'',body:''});r['n_'+k]=Math.max(1,n-1);save();render();});
-  $('#saveBtn').onclick=async()=>{
-    if(r.status==='empty')r.status='draft';
-    await flush();
-    const e=validate(r).filter(x=>x.includes('オーバー'));
-    toast(e.length?'保存しました（文字数が上限を超えている項目があります。文字が小さく表示されます）':'保存しました');
-  };
+  $('#submitBtn')?.addEventListener('click',async()=>{
+    const e=validate(r).filter(x=>!x.includes('オーバー'));
+    if(e.length){$('#errs').innerHTML=`<div class="errs">提出できません。以下を入力してください。<ul>${e.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></div>`;$('#errs').scrollIntoView({behavior:'smooth'});return;}
+    const over=validate(r).some(x=>x.includes('オーバー'));
+    r.status='submitted';r.note='';await flush();render();
+    toast(over?'提出しました（文字数が上限を超えている項目があります。文字が小さく表示されます）':'提出しました');
+  });
+  $('#withdraw')?.addEventListener('click',async()=>{r.status='draft';await flush();render();toast('提出を取り下げました');});
   $('#pdf1').onclick=()=>printPages([pageHtml(svc,r,m)],`動向レポート_${svc.name}_${m}`);
   draw(svc,r,m);
 }
