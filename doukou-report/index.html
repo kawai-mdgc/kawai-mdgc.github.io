@@ -458,6 +458,12 @@ function startApp(){
   init();
 }
 async function boot(){
+  $('#userBtn').onclick=e=>{e.stopPropagation();$('#bellMenu').classList.remove('open');const o=$('#uMenu').classList.toggle('open');$('#userBtn').setAttribute('aria-expanded',o);};
+  document.addEventListener('click',e=>{if(!e.target.closest('.bellwrap'))$('#bellMenu').classList.remove('open');if(!e.target.closest('.user'))$('#uMenu').classList.remove('open');if(!e.target.closest('.cmenu,.more'))document.querySelectorAll('.cmenu.open').forEach(x=>x.classList.remove('open'));});
+  $('#bellBtn').onclick=e=>{e.stopPropagation();$('#uMenu').classList.remove('open');$('#bellMenu').classList.toggle('open');};
+  $('#settingsBtn').onclick=()=>guardLeave(()=>{ui.tab='settings';render();});
+  $('#goHome').onclick=()=>{if(me)guardLeave(()=>{ui.tab='home';render();});};
+  $('#logout').onclick=async()=>{await flush();if(auth)await auth.signOut();me=null;store=null;started=false;access={editors:[],decisions:{}};requests=[];myReq=null;showLogin();};
   if(DEMO_ROLE){
     me={name:DEMO_ROLE==='manager'?'事業部長（デモ）':'メンバー（デモ）',email:'demo@'+DOMAIN,isAdmin:false,baseEditor:DEMO_ROLE==='manager',sim:null};
     store=DemoStore;await store.init();document.body.classList.add('demo');
@@ -467,12 +473,6 @@ async function boot(){
     startApp();return;
   }
   $('#demoLogin').onclick=async()=>{me={name:'デモユーザー',email:'demo@'+DOMAIN,isAdmin:true,baseEditor:true};store=LocalStore;await store.init();startApp();};
-  $('#userBtn').onclick=e=>{e.stopPropagation();$('#bellMenu').classList.remove('open');const o=$('#uMenu').classList.toggle('open');$('#userBtn').setAttribute('aria-expanded',o);};
-  document.addEventListener('click',e=>{if(!e.target.closest('.bellwrap'))$('#bellMenu').classList.remove('open');if(!e.target.closest('.user'))$('#uMenu').classList.remove('open');if(!e.target.closest('.cmenu,.more'))document.querySelectorAll('.cmenu.open').forEach(x=>x.classList.remove('open'));});
-  $('#bellBtn').onclick=e=>{e.stopPropagation();$('#uMenu').classList.remove('open');$('#bellMenu').classList.toggle('open');};
-  $('#settingsBtn').onclick=()=>guardLeave(()=>{ui.tab='settings';render();});
-  $('#goHome').onclick=()=>{if(me)guardLeave(()=>{ui.tab='home';render();});};
-  $('#logout').onclick=async()=>{await flush();if(auth)await auth.signOut();me=null;store=null;started=false;access={editors:[],decisions:{}};requests=[];myReq=null;showLogin();};
   if(!CFG.firebase){showLogin(demoAllowed?'':'Firebase の設定（config.js）が未完了です。');$('#gLogin').onclick=()=>showLogin('Firebase の設定（config.js）が未完了です。');return;}
   try{
     const v='10.12.2',b='https://www.gstatic.com/firebasejs/'+v+'/';
