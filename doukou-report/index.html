@@ -141,6 +141,15 @@ body:not(.authed) .login{display:grid}
 .gbtn:hover{background:#f9fafb}
 .login .err{margin-top:16px;font-size:12px;color:var(--ng);line-height:1.6}
 .login .demo{margin-top:14px;font-size:11px;color:var(--sub)}
+.hc{position:relative;cursor:pointer;transition:transform .15s,box-shadow .15s,background .15s}
+.hc:hover{transform:translateY(-3px);box-shadow:0 10px 24px rgba(0,0,0,.14);background:#dedfd8}
+.more{position:absolute;top:8px;right:8px;width:34px;height:34px;border-radius:50%;border:0;background:transparent;color:#555;font-size:14px;letter-spacing:1px;cursor:pointer;display:grid;place-items:center;z-index:2}
+.hc:hover .more{background:#fff}
+.more:hover{background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.15)}
+.cmenu{display:none;position:absolute;top:46px;right:8px;background:#fff;border-radius:12px;box-shadow:0 6px 20px rgba(0,0,0,.18);padding:6px;z-index:5;min-width:120px}
+.cmenu.open{display:block}
+.cmenu button{display:block;width:100%;text-align:left;border:0;background:none;color:#c8223a;font-weight:700;font-size:14px;padding:10px 14px;border-radius:8px;cursor:pointer}
+.cmenu button:hover{background:#fdf2f3}
 .hist{font-size:12px;line-height:1.9;color:var(--sub)}
 .hist b{color:var(--ink)}
 </style>
@@ -223,6 +232,13 @@ async function flush(){
   try{await Promise.all(jobs);}catch(e){toast('保存に失敗しました：'+(e.message||e));}
   if(!jobs.length)return; patchEditInfo();
 }
+/* 再描画してもフォームのスクロール位置を保つ（項目の追加・削除、一括貼り付けなど用） */
+function renderKeep(focusKey){
+  const f=document.querySelector('.form'),top=f?f.scrollTop:0;
+  render();
+  const nf=document.querySelector('.form');if(nf)nf.scrollTop=top;
+  if(focusKey){const el=document.querySelector(`[data-k="${focusKey}"]`);if(el)el.focus({preventScroll:true});}
+}
 /* 入力画面の「作成・編集の情報」と履歴だけを差し替える（フォームは再描画しない＝スクロールや入力中の文字が飛ばない） */
 const HIST_SHOW=['create','edit','import','submit','withdraw'];
 function metaHtml(m,svc,r){const st=effStatus(m,svc.id);
@@ -289,7 +305,7 @@ function startApp(){
 async function boot(){
   $('#demoLogin').onclick=async()=>{me={name:'デモユーザー',email:'demo@'+DOMAIN,isAdmin:true};store=LocalStore;await store.init();startApp();};
   $('#userBtn').onclick=e=>{e.stopPropagation();const o=$('#uMenu').classList.toggle('open');$('#userBtn').setAttribute('aria-expanded',o);};
-  document.addEventListener('click',e=>{if(!e.target.closest('.user'))$('#uMenu').classList.remove('open');});
+  document.addEventListener('click',e=>{if(!e.target.closest('.user'))$('#uMenu').classList.remove('open');if(!e.target.closest('.cmenu,.more'))document.querySelectorAll('.cmenu.open').forEach(x=>x.classList.remove('open'));});
   $('#goHome').onclick=()=>{if(me){ui.tab='home';render();}};
   $('#logout').onclick=async()=>{await flush();if(auth)await auth.signOut();me=null;store=null;showLogin();};
   if(!CFG.firebase){showLogin(demoAllowed?'':'Firebase の設定（config.js）が未完了です。');$('#gLogin').onclick=()=>showLogin('Firebase の設定（config.js）が未完了です。');return;}
@@ -388,9 +404,9 @@ function viewHome(){
   Object.keys(S.reports).filter(m=>m>=cur).sort().reverse().forEach(m=>S.services.forEach(s=>{if(S.reports[m][s.id])ents.push({m,s});}));
   const missing=S.services.filter(s=>!['submitted','approved'].includes(((S.reports[cur]||{})[s.id]||{}).status));
   const card=({m,s})=>{const st=effStatus(m,s.id),r=peek(m,s.id);
-    return `<div class="gcell hc"><div class="cap"><b>${esc(s.name)}</b><span>${mLabel(m)}</span></div>${scaled(pageHtml(s,r,m),200)}
+    return `<div class="gcell hc" data-open="${m}|${s.id}"><button class="more" data-more="${m}|${s.id}" aria-label="メニュー">･･･</button><div class="cmenu" data-menu="${m}|${s.id}"><button data-rm="${m}|${s.id}">削除</button></div><div class="cap"><b>${esc(s.name)}</b><span>${mLabel(m)}</span></div>${scaled(pageHtml(s,r,m),200)}
     <div><span class="pill ${STATUS[st][1]}">${STATUS[st][0]}</span> <span class="note">${r.updatedBy?esc(r.updatedBy.name)+' '+fmt(r.updatedAt):''}</span></div>
-    <div class="cap"><button class="btn sm pri" data-open="${m}|${s.id}">開く</button><button class="btn sm" data-dup="${m}|${s.id}">複製</button><button class="btn sm" data-rm="${m}|${s.id}">削除</button></div></div>`;};
+</div>`;};
   $('#main').innerHTML=`<div class="pane"><div style="display:flex;align-items:center;gap:12px;margin-bottom:6px;flex-wrap:wrap"><h2 style="margin:0">${mLabel(cur)}</h2><span class="pill st-submitted">現在号</span><span class="deadline">${deadlineInfo()}</span><span class="spacer"></span><button class="btn" id="goLog">📁 ログ</button><button class="btn pri" id="new">＋ 新規作成</button></div>
    <p class="note" style="margin:0 0 18px">現在号のレポートが表示されます。号が変わると、過去の号は自動で「ログ」（事業部→年のフォルダ）に移ります。</p>
    ${missing.length?`<div class="card" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><b style="font-size:13px">${mLabel(cur)} 未提出：</b>${missing.map(s=>`<button class="btn sm" data-mk="${s.id}"><span class="dot" style="background:${s.color};display:inline-block;margin-right:6px"></span>${esc(s.name)}</button>`).join('')}</div>`:''}
@@ -398,9 +414,9 @@ function viewHome(){
   $('#new').onclick=()=>newDialog();
   $('#goLog').onclick=()=>{logPath={y:null,s:null};ui.tab='log';render();};
   document.querySelectorAll('[data-mk]').forEach(b=>b.onclick=()=>{const id=b.dataset.mk;if((S.reports[cur]||{})[id])openReport(cur,id);else newDialog(id);});
-  document.querySelectorAll('[data-open]').forEach(b=>b.onclick=()=>{const [m,id]=b.dataset.open.split('|');openReport(m,id);});
-  document.querySelectorAll('[data-dup]').forEach(b=>b.onclick=()=>{const [m,id]=b.dataset.dup.split('|');newDialog(id,m);});
-  document.querySelectorAll('[data-rm]').forEach(b=>b.onclick=()=>{const [m,id]=b.dataset.rm.split('|');
+  document.querySelectorAll('.hc[data-open]').forEach(c=>c.onclick=e=>{if(e.target.closest('.more,.cmenu'))return;const [m,id]=c.dataset.open.split('|');openReport(m,id);});
+  document.querySelectorAll('[data-more]').forEach(b=>b.onclick=e=>{e.stopPropagation();const menu=document.querySelector(`[data-menu="${b.dataset.more}"]`),was=menu.classList.contains('open');document.querySelectorAll('.cmenu.open').forEach(x=>x.classList.remove('open'));if(!was)menu.classList.add('open');});
+  document.querySelectorAll('[data-rm]').forEach(b=>b.onclick=e=>{e.stopPropagation();const [m,id]=b.dataset.rm.split('|');
     if(confirm(`${S.services.find(x=>x.id===id).name}（${mLabel(m)}）を削除します。元に戻せません。よろしいですか？`)){delete S.reports[m][id];if(!Object.keys(S.reports[m]).length)delete S.reports[m];save();refreshMonths();render();}});
 }
 
@@ -504,16 +520,16 @@ function viewEdit(){
   $('#copyPrev')?.addEventListener('click',()=>{const p=(S.reports[prevMonth(m)]||{})[svc.id];if(!p){toast('前月のデータがありません');return;}
     const c=structuredClone(p);c.status='draft';c.note='';S.reports[m][svc.id]=c;save();render();toast('前月の内容をコピーしました。更新してください');});
   $('#bulk')?.addEventListener('click',()=>bulkDialog(r));
-  document.querySelectorAll('[data-add]').forEach(b=>b.onclick=()=>{const k=b.dataset.add;r['n_'+k]=Math.min(3,nShow(k)+1);if(r.status==='empty')r.status='draft';save();render();});
-  document.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{const [k,i]=b.dataset.del.split(':');const n=nShow(k);r[k].splice(+i,1);r[k].push({title:'',body:''});r['n_'+k]=Math.max(1,n-1);save();render();});
+  document.querySelectorAll('[data-add]').forEach(b=>b.onclick=()=>{const k=b.dataset.add;const n=nShow(k);r['n_'+k]=Math.min(3,n+1);if(r.status==='empty')r.status='draft';save();renderKeep(n<3?`${k}.${n}.title`:null);});
+  document.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{const [k,i]=b.dataset.del.split(':');const n=nShow(k);r[k].splice(+i,1);r[k].push({title:'',body:''});r['n_'+k]=Math.max(1,n-1);save();renderKeep();});
   $('#submitBtn')?.addEventListener('click',async()=>{
     const e=validate(r).filter(x=>!x.includes('オーバー'));
     if(e.length){$('#errs').innerHTML=`<div class="errs">提出できません。以下を入力してください。<ul>${e.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></div>`;$('#errs').scrollIntoView({behavior:'smooth'});return;}
     const over=validate(r).some(x=>x.includes('オーバー'));
-    r.status='submitted';r.note='';await flush();render();
+    r.status='submitted';r.note='';await flush();renderKeep();
     toast(over?'提出しました（文字数が上限を超えている項目があります。文字が小さく表示されます）':'提出しました');
   });
-  $('#withdraw')?.addEventListener('click',async()=>{r.status='draft';await flush();render();toast('提出を取り下げました');});
+  $('#withdraw')?.addEventListener('click',async()=>{r.status='draft';await flush();renderKeep();toast('提出を取り下げました');});
   $('#pdf1').onclick=()=>printPages([pageHtml(svc,r,m)],`動向レポート_${svc.name}_${m}`);
   draw(svc,r,m);
 }
@@ -546,7 +562,7 @@ function bulkDialog(r){
           r[k][i]={title:p[0]||'',body:p.slice(1).join(' ')};cur={k,i};}
         else{r[map[mm[4]]]=mm[5];cur={f:map[mm[4]]};} }
       else if(cur&&line.trim()){ if(cur.f)r[cur.f]+='\n'+line.trim(); else r[cur.k][cur.i].body+=(r[cur.k][cur.i].body?'\n':'')+line.trim(); }});
-    if(r.status==='empty')r.status='draft';save();d.remove();render();toast('反映しました。文字数を確認してください');};
+    if(r.status==='empty')r.status='draft';save();d.remove();renderKeep();toast('反映しました。文字数を確認してください');};
 }
 
 function viewAll(){
