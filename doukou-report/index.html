@@ -311,7 +311,7 @@ const mLabel=m=>m.slice(0,4)+'年'+Number(m.slice(5))+'月号';
 function prevMonth(m){const [y,mo]=m.split('-').map(Number),d=new Date(y,mo-2,1);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');}
 function getReport(m,id){S.reports[m]??={};S.reports[m][id]??=emptyReport();return S.reports[m][id];}
 const peek=(m,id)=>(S.reports[m]||{})[id]||emptyReport();
-function deadlineInfo(){const [y,mo]=curIssue().split('-').map(Number),dl=new Date(y,mo-1,S.deadlineDay,23,59,59),days=Math.ceil((dl-new Date())/86400000),t=`${mo}/${S.deadlineDay} 締切`;
+function deadlineInfo(){const [y,mo]=curIssue().split('-').map(Number),dl=new Date(y,mo-2,S.deadlineDay,23,59,59),days=Math.ceil((dl-new Date())/86400000),t=`${dl.getMonth()+1}/${S.deadlineDay} 締切`;
   return days<0?`<span class="late">${t}（${-days}日超過）</span>`:`<b>${t}</b>（あと${days}日）`;}
 
 /* 検証 */
@@ -365,8 +365,8 @@ function render(){
 }
 
 
-/* 現在号：次の締切日(毎月12日)が来る月。12日を過ぎたら翌月号。過去の号は自動でログへ */
-function curIssue(){const d=new Date();let y=d.getFullYear(),m=d.getMonth()+1;if(d.getDate()>S.deadlineDay){m++;if(m>12){m=1;y++;}}return y+'-'+String(m).padStart(2,'0');}
+/* 現在号：今月の翌月号（例：11月中は12月号）。号の締切は、その前月の12日（12月号は11/12）。過去の号は自動でログへ */
+function curIssue(){const d=new Date();let y=d.getFullYear(),m=d.getMonth()+2;if(m>12){m-=12;y++;}return y+'-'+String(m).padStart(2,'0');}
 const isPast=m=>m<curIssue();
 let logPath={y:null,s:null};
 
