@@ -145,6 +145,10 @@ body:not(.authed) .login{display:grid}
 .gbtn:hover{background:#f9fafb}
 .login .err{margin-top:16px;font-size:12px;color:var(--ng);line-height:1.6}
 .login .demo{margin-top:14px;font-size:11px;color:var(--sub)}
+.tw{position:relative;display:block;overflow:hidden;line-height:0}
+.tw .tz{display:block;transition:transform .2s ease}
+.ex:hover .tz{transform:scale(1.07)}
+.tov{position:absolute;inset:0;display:grid;place-items:center;background:rgba(17,17,17,.5);color:#fff;font-size:13px;font-weight:700;line-height:1;letter-spacing:.04em}
 .pres{position:absolute;right:12px;bottom:12px;display:flex;padding-left:8px}
 .pres .pa{width:24px;height:24px;border-radius:50%;border:2px solid #e9e9e4;background:#6b4bd6;color:#fff;font-size:9px;font-weight:700;display:grid;place-items:center;overflow:hidden;margin-left:-8px;box-sizing:content-box}
 .pres .pa img{width:100%;height:100%;object-fit:cover;display:block}
@@ -357,11 +361,13 @@ function showDrive(k){
 }
 /* いま、そのレポートを開いている人（オンライン）のアイコン。Googleのアイコンを使い、無ければ名前の頭文字 */
 let presence=[],lastPresSig=null;
+const TAB_ID=Math.random().toString(36).slice(2,10);   // タブごとの印。別タブで開きっぱなしでも、そのレポートの「開いている人」に出る
 const initials=nm=>{nm=(nm||'?').trim();return /[\u3040-\u30ff\u3400-\u9fff]/.test(nm)?nm.replace(/\s/g,'').slice(-2):nm.slice(0,1).toUpperCase();};
 function presHtml(m,id){
-  const l=presence.filter(p=>p.month===m&&p.svc===id&&Date.now()-p.ts<90000);
+  const l=presence.filter(p=>p.month===m&&p.svc===id&&Date.now()-p.ts<150000);
   const mine=me&&me.email?me.email.toLowerCase():'';
   if(me&&ui.tab==='edit'&&ui.month===m&&ui.svc===id&&!l.some(p=>String(p.email||'').toLowerCase()===mine))l.unshift({name:me.name,photo:me.photo||'',email:mine});   // 自分も、開いている間は出す（通信を待たずに）
+  {const seen=new Set();for(let i=0;i<l.length;i++){const k=String(l[i].email||l[i].name).toLowerCase();if(seen.has(k))l.splice(i--,1);else seen.add(k);}}   // 同じ人が複数のタブで開いていても、1つだけ
   if(!l.length)return '';
   const av=p=>`<span class="pa${mine&&String(p.email||'').toLowerCase()===mine?' me':''}" title="${esc(p.name)}${mine&&String(p.email||'').toLowerCase()===mine?'（あなた）':''}">${p.photo?`<img src="${esc(p.photo)}" referrerpolicy="no-referrer" alt="">`:esc(initials(p.name))}</span>`;
   return l.slice(0,3).map(av).join('')+(l.length>3?`<span class="pa more" title="${esc(l.slice(3).map(p=>p.name).join('、'))}">+${l.length-3}</span>`:'');
@@ -369,8 +375,8 @@ function presHtml(m,id){
 const paintPresence=()=>document.querySelectorAll('.pres').forEach(el=>{el.innerHTML=presHtml(el.dataset.pm,el.dataset.ps);});
 async function beat(gone){
   if(!me||!db||DEMO_ROLE||!me.email)return;
-  const ref=db.collection('presence').doc(me.email.toLowerCase());
-  try{if(gone)await ref.delete();else await ref.set({email:me.email.toLowerCase(),name:me.name,photo:me.photo||'',month:ui.tab==='edit'?ui.month:null,svc:ui.tab==='edit'?ui.svc:null,ts:Date.now()});}catch(e){}
+  const ref=db.collection('presence').doc(me.email.toLowerCase()+'__'+TAB_ID);
+  try{if(gone)await ref.delete();else await ref.set({email:me.email.toLowerCase(),tab:TAB_ID,name:me.name,photo:me.photo||'',month:ui.tab==='edit'?ui.month:null,svc:ui.tab==='edit'?ui.svc:null,ts:Date.now()});}catch(e){}
 }
 const VA_NAME={admin:'管理者',manager:'事業部長',member:'メンバー'};
 function setViewAs(v){
@@ -483,7 +489,9 @@ const FireStore={
         const was=me.canEdit;recalcRole();applyRoleUI();
         if(f){f=false;res();}else if(started&&was!==me.canEdit){toast(me.canEdit?'編集権限が付与されました':'編集権限が外れました');render();}
       },()=>{if(f){f=false;res();}});});
-    db.collection('presence').onSnapshot(sn=>{presence=sn.docs.map(d=>d.data());paintPresence();},()=>{});
+    let presFirst=true;
+    db.collection('presence').onSnapshot(sn=>{presence=sn.docs.map(d=>d.data());paintPresence();
+      if(presFirst){presFirst=false;sn.docs.forEach(d=>{const v=d.data();if(String(v.email).toLowerCase()===me.email.toLowerCase()&&Date.now()-v.ts>600000)d.ref.delete().catch(()=>{});});}},()=>{});   // 自分の古い印（閉じ忘れ）は、起動時に片づける
     if(me.driveCheck)db.collection('driveChecks').onSnapshot(sn=>{drive={};sn.docs.forEach(d=>{const v=d.data();drive[key(v.month,v.service)]=v;});updateBell();if(started&&(ui.tab==='home'||ui.tab==='log')&&!isTyping())render();},()=>{});
     if(me.isAdmin)db.collection('adminNotices').onSnapshot(sn=>{notices=sn.docs.map(d=>({id:d.id,...d.data()}));updateBell();},()=>{});
     if(me.isAdmin)db.collection('requests').onSnapshot(sn=>{requests=sn.docs.map(d=>d.data());applyRoleUI();if(started&&ui.tab==='settings'&&!isTyping())render();},()=>{});
@@ -522,8 +530,8 @@ function startApp(){
   $('#uAv').innerHTML=me.photo?`<img src="${esc(me.photo)}" referrerpolicy="no-referrer" alt="">`:esc(cjk?nm.replace(/\s/g,'').slice(-2):nm.slice(0,1).toUpperCase());
   $('#uMenu').classList.remove('open');
   if(!window._presTimer){
-    window._presTimer=setInterval(()=>{if(document.visibilityState==='visible')beat();paintPresence();},30000);
-    document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')beat();else beat(true);});
+    window._presTimer=setInterval(()=>{beat();paintPresence();},30000);   // 別タブで開きっぱなしでも、30秒ごとに知らせる
+    document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')beat();});
     window.addEventListener('pagehide',()=>{beat(true);});
   }
   init();
@@ -746,17 +754,19 @@ function viewLog(){
 function openReport(m,id,from){ui.back=from||'home';ui.month=m;ui.svc=id;ui.tab='edit';refreshMonths();render();}
 function newDialog(preSvc,copyFrom){
   const d=document.createElement('div');d.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);display:grid;place-items:center;z-index:9;overflow:auto;padding:20px';
-  let sel=preSvc||S.services[0].id;const cur=curIssue();
+  const cur=curIssue(),has=id=>!!(S.reports[cur]||{})[id];   // 対象月にすでに作成済みか
+  let sel=preSvc&&!has(preSvc)?preSvc:(S.services.find(x=>!has(x.id))||{}).id||null;
   d.innerHTML=`<div class="card" style="width:min(720px,94vw);margin:0"><h3>${copyFrom?'レポートを複製':'新規作成'} <small>テンプレートを選択</small></h3>
-   <div id="tp" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:10px;margin-bottom:14px">${S.services.map(s=>`<button class="btn" data-s="${s.id}" style="padding:8px;display:grid;gap:6px;justify-items:center">${scaled(pageHtml(s,emptyReport(),ui.month),90)}<span style="font-size:12px">${esc(s.name)}</span></button>`).join('')}</div>
+   <div id="tp" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:10px;margin-bottom:14px">${S.services.map(s=>{const ex=has(s.id);return `<button class="btn ${ex?'ex':''}" data-s="${s.id}" data-ex="${ex?1:0}" style="padding:8px;display:grid;gap:6px;justify-items:center"><span class="tw"><span class="tz">${scaled(pageHtml(s,ex?S.reports[cur][s.id]:emptyReport(),ex?cur:ui.month),90)}</span>${ex?'<span class="tov">編集する</span>':''}</span><span style="font-size:12px">${esc(s.name)}</span></button>`;}).join('')}</div>
    <div class="f"><label><span>対象月</span></label><input type="text" id="nm" value="${mLabel(cur)}" disabled style="width:100%;background:#f3f4f6;color:#9ca3af;border-color:#e5e7eb;cursor:not-allowed;-webkit-text-fill-color:#9ca3af"></div>
    <div class="bar"><span class="spacer"></span><button class="btn" id="nc">キャンセル</button><button class="btn pri" id="ng">作成して入力へ</button></div></div>`;
   document.body.appendChild(d);
-  const mark=()=>d.querySelectorAll('[data-s]').forEach(b=>b.style.outline=b.dataset.s===sel?'2px solid #1b1b1b':'none');
-  d.querySelectorAll('[data-s]').forEach(b=>b.onclick=()=>{sel=b.dataset.s;mark();});mark();
+  const mark=()=>{d.querySelectorAll('[data-s]').forEach(b=>b.style.outline=b.dataset.s===sel?'2px solid #1b1b1b':'none');d.querySelector('#ng').disabled=!sel;};
+  d.querySelectorAll('[data-s]').forEach(b=>b.onclick=()=>{if(b.dataset.ex==='1'){d.remove();openReport(cur,b.dataset.s);return;}   // 作成済みのものは、押すとそのまま編集へ
+    sel=b.dataset.s;mark();});mark();
   d.querySelector('#nc').onclick=()=>d.remove();
   d.querySelector('#ng').onclick=()=>{
-    const m=cur;
+    const m=cur;if(!sel)return;
     if((S.reports[m]||{})[sel]){d.remove();toast('すでに作成済みです。開きます');openReport(m,sel);return;}
     let r=emptyReport();
     if(copyFrom){const src=peek(copyFrom,sel);
