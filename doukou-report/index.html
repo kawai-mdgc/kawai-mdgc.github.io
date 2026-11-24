@@ -506,6 +506,15 @@ const FireStore={
     const c=await db.collection('config').doc('main').get();
     if(c.exists){const d=c.data();S.deadlineDay=d.deadlineDay||12;if(d.services&&d.services.length)S.services=d.services;}
     recalcRole();
+    /* 設定（事業部長など）は、ほかの管理者が変えたら、開いたままでもすぐ反映する。古い内容で上書きしてしまうのを防ぐ */
+    let cfgFirst=true;
+    db.collection('config').doc('main').onSnapshot(d=>{
+      if(cfgFirst){cfgFirst=false;return;}
+      if(!d.exists||d.metadata.hasPendingWrites)return;
+      const v=d.data();S.deadlineDay=v.deadlineDay||12;if(v.services&&v.services.length)S.services=v.services;
+      cfgSnap=JSON.stringify([S.deadlineDay,S.services]);recalcRole();applyRoleUI();
+      if(started&&!isTyping()&&['home','settings'].includes(ui.tab))render();
+    },()=>{});
     await new Promise((res,rej)=>{let first=true;
       db.collection('reports').onSnapshot(sn=>{
         sn.docChanges().forEach(ch=>{const d=ch.doc.data(),m=d.month,id=d.service,k=key(m,id);
