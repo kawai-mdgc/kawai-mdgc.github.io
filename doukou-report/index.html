@@ -105,10 +105,12 @@ tr:last-child td{border-bottom:0}
 #printRoot{display:none}
 @media print{
   @page{size:A4;margin:0}
-  body{background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-  .app,.toast{display:none!important}
+  html,body{height:auto!important;margin:0;padding:0;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .app,.toast,.login{display:none!important}
   #printRoot{display:block}
-  #printRoot .page{box-shadow:none;zoom:1.33445;page-break-after:always;break-after:page}
+  /* A4は96dpiで 793.7×1122.5px。レポート(595×842)を1.333倍して、1枚にぴったり収める */
+  #printRoot .page{box-shadow:none;margin:0;overflow:hidden;zoom:1.333;break-inside:avoid;break-after:page;page-break-after:always}
+  #printRoot .page:last-child{break-after:auto;page-break-after:auto}
 }
 @media (max-width:980px){.previewCol{display:none}.form{max-width:none}}
 
