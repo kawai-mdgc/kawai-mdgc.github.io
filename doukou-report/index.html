@@ -156,6 +156,12 @@ body:not(.authed) .login{display:grid}
 .cmenu button.neutral:hover{background:#f3f4f6}
 .cmenu button{display:block;width:100%;text-align:left;border:0;background:none;color:#c8223a;font-weight:700;font-size:14px;padding:10px 14px;border-radius:8px;cursor:pointer}
 .cmenu button:hover{background:#fdf2f3}
+.gearbtn{display:none;align-items:center;gap:6px;border:1px solid var(--line);background:#fff;border-radius:99px;padding:6px 14px;font-weight:600;font-size:13px;cursor:pointer}
+.gearbtn:hover{background:#f3f4f6}
+.gearbtn .badge{background:#c8223a;color:#fff;border-radius:99px;min-width:18px;height:18px;font-size:11px;display:none;place-items:center;padding:0 5px}
+.reqrow{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--line);font-size:13px}
+.reqrow:last-of-type{border-bottom:0}
+.viewonly{background:#f3f4f6;border:1px solid var(--line);border-radius:12px;padding:12px 16px;margin-bottom:14px;font-size:13px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
 .hist{font-size:12px;line-height:1.9;color:var(--sub)}
 .hist b{color:var(--ink)}
 </style>
@@ -174,6 +180,7 @@ body:not(.authed) .login{display:grid}
     <div class="logo" id="goHome" style="cursor:pointer"><i><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></i><span>動向レポート作成ツール</span></div>
     <div class="tabs" id="tabs"></div>
     <div class="spacer"></div>
+    <button class="gearbtn" id="settingsBtn">⚙ 設定<span class="badge" id="reqBadge"></span></button>
     <div class="user"><button class="userbtn" id="userBtn" aria-haspopup="true" aria-expanded="false"><div class="av" id="uAv"></div><b id="uName"></b></button>
       <div class="umenu" id="uMenu"><button id="logout"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg><span>ログアウト</span></button></div></div>
   </header>
@@ -216,7 +223,12 @@ const CFG = window.APP_CONFIG || {};
 const DOMAIN = CFG.allowedDomain || 'madoguchi.inc';
 let S = {deadlineDay:12, services:structuredClone(DEFAULT.services), reports:{}};
 let ui = {tab:'home', svc:null, month:null, role:'sales', back:null};
-let me = null, store = null, auth = null, db = null;
+let me = null, store = null, auth = null, db = null, started = false;
+let access = {editors:[]}, requests = [], myReq = null;   // 追加で承認された編集者／権限の申請
+const sha=async t=>{const b=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(t));return [...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('');};
+/* 権限：管理者（設定・承認ができる）／編集者（編集・削除ができる）／それ以外は閲覧のみ */
+function recalcRole(){if(me)me.canEdit=!!(me.isAdmin||me.baseEditor||access.editors.includes((me.email||'').toLowerCase()));}
+function applyRoleUI(){if(!me)return;$('#settingsBtn').style.display=me.isAdmin?'inline-flex':'none';const n=requests.length,b=$('#reqBadge');b.textContent=n||'';b.style.display=n?'inline-grid':'none';}
 const META = ['createdBy','createdAt','updatedBy','updatedAt','history','updated'];
 const key=(m,id)=>m+'__'+id;
 let snap={}, cfgSnap='', saveTimer=null;
@@ -236,7 +248,7 @@ function touch(r,action,w,now){
 /* 保存：変更されたレポートだけを、作成者・編集者つきで書き込む */
 function save(){clearTimeout(saveTimer);saveTimer=setTimeout(flush,600);}
 async function flush(){
-  clearTimeout(saveTimer);saveTimer=null;if(!me||!store)return;
+  clearTimeout(saveTimer);saveTimer=null;if(!me||!store||!me.canEdit)return;
   const now=new Date().toISOString(),w=who(),jobs=[],seen=new Set();
   Object.keys(S.reports).forEach(m=>Object.keys(S.reports[m]).forEach(id=>{
     const r=S.reports[m][id],k=key(m,id);seen.add(k);const b=bodyJson(r);if(snap[k]===b)return;
@@ -276,7 +288,9 @@ const indexSnap=()=>{snap={};Object.keys(S.reports).forEach(m=>Object.keys(S.rep
 const LocalStore={
   async init(){try{const j=JSON.parse(localStorage.getItem('doukou-demo-v1'));if(j)S=j;}catch(e){}indexSnap();},
   _w(){try{localStorage.setItem('doukou-demo-v1',JSON.stringify(S));}catch(e){}},
-  async setReport(){this._w();},async delReport(){this._w();},async setConfig(){this._w();}
+  async setReport(){this._w();},async delReport(){this._w();},async setConfig(){this._w();},
+  async requestEdit(){},async approve(e){access.editors=[...new Set([...access.editors,e])];requests=requests.filter(x=>x.email!==e);},
+  async reject(e){requests=requests.filter(x=>x.email!==e);},async revoke(e){access.editors=access.editors.filter(x=>x!==e);}
 };
 const FireStore={
   async init(){
@@ -292,7 +306,20 @@ const FireStore={
           S.reports[m]??={};S.reports[m][id]=d.report;snap[k]=bodyJson(d.report);});
         if(first){first=false;cfgSnap=JSON.stringify([S.deadlineDay,S.services]);res();}else if(!isTyping())render();
       },rej);});
+    /* 編集権限（追加で承認された人）と、権限の申請 */
+    await new Promise(res=>{let f=true;
+      db.collection('access').doc('main').onSnapshot(d=>{
+        access={editors:((d.exists&&d.data().editors)||[]).map(x=>String(x).toLowerCase())};
+        const was=me.canEdit;recalcRole();applyRoleUI();
+        if(f){f=false;res();}else if(started&&was!==me.canEdit){toast(me.canEdit?'編集権限が付与されました':'編集権限が外れました');render();}
+      },()=>{if(f){f=false;res();}});});
+    if(me.isAdmin)db.collection('requests').onSnapshot(sn=>{requests=sn.docs.map(d=>d.data());applyRoleUI();if(started&&ui.tab==='settings'&&!isTyping())render();},()=>{});
+    else db.collection('requests').doc(me.email).onSnapshot(d=>{myReq=d.exists?d.data():null;if(started&&ui.tab==='home'&&!isTyping())render();},()=>{});
   },
+  requestEdit(){return db.collection('requests').doc(me.email).set({email:me.email,name:me.name,at:new Date().toISOString()});},
+  async approve(email){await db.collection('access').doc('main').set({editors:[...new Set([...access.editors,email])]});await db.collection('requests').doc(email).delete();},
+  reject(email){return db.collection('requests').doc(email).delete();},
+  revoke(email){return db.collection('access').doc('main').set({editors:access.editors.filter(x=>x!==email)});},
   setReport(m,id,r){return db.collection('reports').doc(key(m,id)).set({month:m,service:id,report:clone(r)});},
   delReport(m,id){return db.collection('reports').doc(key(m,id)).delete();},
   setConfig(){return db.collection('config').doc('main').set({deadlineDay:S.deadlineDay,services:clone(S.services)});}
@@ -313,7 +340,7 @@ const demoAllowed=['file:','data:'].includes(location.protocol)||['localhost','1
 function showLogin(err){document.body.classList.remove('authed');$('#loginErr').textContent=err||'';$('#demoBox').style.display=(!CFG.firebase&&demoAllowed)?'block':'none';}
 function startApp(){
   document.body.classList.add('authed');
-  ui.role=me.isAdmin?'admin':'sales';
+  recalcRole();applyRoleUI();started=true;
   $('#uName').textContent=me.name;
   const nm=(me.name||'?').trim(),cjk=/[\u3040-\u30ff\u3400-\u9fff]/.test(nm);
   $('#uAv').innerHTML=me.photo?`<img src="${esc(me.photo)}" referrerpolicy="no-referrer" alt="">`:esc(cjk?nm.replace(/\s/g,'').slice(-2):nm.slice(0,1).toUpperCase());
@@ -321,11 +348,12 @@ function startApp(){
   init();
 }
 async function boot(){
-  $('#demoLogin').onclick=async()=>{me={name:'デモユーザー',email:'demo@'+DOMAIN,isAdmin:true};store=LocalStore;await store.init();startApp();};
+  $('#demoLogin').onclick=async()=>{me={name:'デモユーザー',email:'demo@'+DOMAIN,isAdmin:true,baseEditor:true};store=LocalStore;await store.init();startApp();};
   $('#userBtn').onclick=e=>{e.stopPropagation();const o=$('#uMenu').classList.toggle('open');$('#userBtn').setAttribute('aria-expanded',o);};
   document.addEventListener('click',e=>{if(!e.target.closest('.user'))$('#uMenu').classList.remove('open');if(!e.target.closest('.cmenu,.more'))document.querySelectorAll('.cmenu.open').forEach(x=>x.classList.remove('open'));});
+  $('#settingsBtn').onclick=()=>{ui.tab='settings';render();};
   $('#goHome').onclick=()=>{if(me){ui.tab='home';render();}};
-  $('#logout').onclick=async()=>{await flush();if(auth)await auth.signOut();me=null;store=null;showLogin();};
+  $('#logout').onclick=async()=>{await flush();if(auth)await auth.signOut();me=null;store=null;started=false;access={editors:[]};requests=[];myReq=null;showLogin();};
   if(!CFG.firebase){showLogin(demoAllowed?'':'Firebase の設定（config.js）が未完了です。');$('#gLogin').onclick=()=>showLogin('Firebase の設定（config.js）が未完了です。');return;}
   try{
     const v='10.12.2',b='https://www.gstatic.com/firebasejs/'+v+'/';
@@ -337,7 +365,8 @@ async function boot(){
   auth.onAuthStateChanged(async u=>{
     if(!u){showLogin();return;}
     if(!u.email||!u.email.toLowerCase().endsWith('@'+DOMAIN)||!u.emailVerified){await auth.signOut();showLogin(`@${DOMAIN} のGoogleアカウントでログインしてください。`);return;}
-    me={name:u.displayName||u.email,email:u.email,photo:u.photoURL,isAdmin:(CFG.admins||[]).map(x=>String(x).toLowerCase()).includes(u.email.toLowerCase())};
+    const h=await sha(u.email.toLowerCase());
+    me={name:u.displayName||u.email,email:u.email,photo:u.photoURL,isAdmin:(CFG.adminHashes||[]).includes(h),baseEditor:(CFG.editorHashes||[]).includes(h)};
     store=FireStore;
     try{await store.init();}catch(e){await auth.signOut();showLogin('データを読み込めませんでした（権限がありません）。');return;}
     startApp();
@@ -421,9 +450,9 @@ function printPages(list,title){const pr=$('#printRoot');pr.innerHTML=list.join(
 
 /* 画面 */
 function render(){
-  if(!['home','log','edit'].includes(ui.tab))ui.tab='home';   // 全体プレビュー・進捗設定・仕組みは一旦非表示
+  if(!['home','log','edit'].concat(me&&me.isAdmin?['settings']:[]).includes(ui.tab))ui.tab='home';
   $('#tabs').innerHTML='';
-  ({home:viewHome,log:viewLog,edit:viewEdit,all:viewAll,admin:viewAdmin,spec:viewSpec})[ui.tab]();
+  ({home:viewHome,log:viewLog,edit:viewEdit,settings:viewSettings,all:viewAll,admin:viewAdmin,spec:viewSpec})[ui.tab]();
 }
 
 
@@ -438,15 +467,18 @@ function viewHome(){
   const cur=curIssue();
   Object.keys(S.reports).filter(m=>m>=cur).sort().reverse().forEach(m=>S.services.forEach(s=>{if(S.reports[m][s.id])ents.push({m,s});}));
   const missing=S.services.filter(s=>!['submitted','approved'].includes(((S.reports[cur]||{})[s.id]||{}).status));
+  const can=me.canEdit;
   const card=({m,s})=>{const st=effStatus(m,s.id),r=peek(m,s.id);
-    return `<div class="gcell hc" data-open="${m}|${s.id}"><button class="more" data-more="${m}|${s.id}" aria-label="メニュー">･･･</button><div class="cmenu" data-menu="${m}|${s.id}"><button data-rm="${m}|${s.id}">削除</button></div><div class="cap"><b>${esc(s.name)}</b><span>${mShort(m)}</span></div>${scaled(pageHtml(s,r,m),200)}
+    return `<div class="gcell hc" data-open="${m}|${s.id}">${can?`<button class="more" data-more="${m}|${s.id}" aria-label="メニュー">･･･</button><div class="cmenu" data-menu="${m}|${s.id}"><button data-rm="${m}|${s.id}">削除</button></div>`:''}<div class="cap"><b>${esc(s.name)}</b><span>${mShort(m)}</span></div>${scaled(pageHtml(s,r,m),200)}
     <div><span class="pill ${STATUS[st][1]}">${STATUS[st][0]}</span> <span class="note">${r.updatedBy?esc(r.updatedBy.name)+' '+fmt(r.updatedAt):''}</span></div>
 </div>`;};
-  $('#main').innerHTML=`<div class="pane"><div style="display:flex;align-items:center;gap:12px;margin-bottom:6px;flex-wrap:wrap"><h2 style="margin:0">${mLabel(cur)}</h2><span class="pill st-submitted">現在号</span><span class="deadline">${deadlineInfo()}</span><span class="spacer"></span><button class="btn" id="goLog">📁 ログ</button><button class="btn pri" id="new">＋ 新規作成</button></div>
+  $('#main').innerHTML=`<div class="pane"><div style="display:flex;align-items:center;gap:12px;margin-bottom:6px;flex-wrap:wrap"><h2 style="margin:0">${mLabel(cur)}</h2><span class="pill st-submitted">現在号</span><span class="deadline">${deadlineInfo()}</span><span class="spacer"></span><button class="btn" id="goLog">📁 ログ</button>${can?'<button class="btn pri" id="new">＋ 新規作成</button>':''}</div>
    <p class="note" style="margin:0 0 18px">現在号のレポートが表示されます。号が変わると、過去の号は自動で「ログ」（事業部→年のフォルダ）に移ります。</p>
-   ${missing.length?`<div class="card" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><b style="font-size:13px">${mLabel(cur)} 未提出：</b>${missing.map(s=>`<button class="btn sm" data-mk="${s.id}"><span class="dot" style="background:${s.color};display:inline-block;margin-right:6px"></span>${esc(s.name)}</button>`).join('')}</div>`:''}
+   ${can?'':`<div class="viewonly"><span>閲覧のみのアカウントです。編集・削除をするには、権限が必要です。</span>${myReq?'<b>権限を申請中です。承認されるまでお待ちください。</b>':'<button class="btn sm pri" id="reqEdit">編集権限を申請する</button>'}</div>`}
+   ${missing.length&&can?`<div class="card" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><b style="font-size:13px">${mLabel(cur)} 未提出：</b>${missing.map(s=>`<button class="btn sm" data-mk="${s.id}"><span class="dot" style="background:${s.color};display:inline-block;margin-right:6px"></span>${esc(s.name)}</button>`).join('')}</div>`:''}
    ${ents.length?`<div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(236px,1fr))">${ents.map(card).join('')}</div>`:'<div class="card" style="text-align:center;padding:48px"><p class="note">現在号のレポートはまだありません。「＋ 新規作成」から始めましょう。</p></div>'}</div>`;
-  $('#new').onclick=()=>newDialog();
+  $('#new')&&($('#new').onclick=()=>newDialog());
+  $('#reqEdit')&&($('#reqEdit').onclick=async()=>{try{await store.requestEdit();myReq={email:me.email,name:me.name,at:new Date().toISOString()};toast('権限を申請しました。管理者の承認をお待ちください');render();}catch(e){toast('申請に失敗しました：'+(e.message||e));}});
   $('#goLog').onclick=()=>{logPath={y:null,s:null};ui.tab='log';render();};
   document.querySelectorAll('[data-mk]').forEach(b=>b.onclick=()=>{const id=b.dataset.mk;if((S.reports[cur]||{})[id])openReport(cur,id);else newDialog(id);});
   document.querySelectorAll('.hc[data-open]').forEach(c=>c.onclick=e=>{if(e.target.closest('.more,.cmenu'))return;const [m,id]=c.dataset.open.split('|');openReport(m,id);});
@@ -510,7 +542,7 @@ function nextMonth(m){const [y,mo]=m.split('-').map(Number),d=new Date(y,mo,1);r
 function viewEdit(){
   const m=ui.month,svc=S.services.find(s=>s.id===ui.svc)||S.services[0];ui.svc=svc.id;
   const r=getReport(m,svc.id),st=effStatus(m,svc.id);
-  const locked=false;
+  const locked=!me.canEdit;
   const cnt=(v,l,k)=>`<span class="cnt ${cntCls(len(v),l)}" data-f="${k}">${cntText(len(v),l)}</span>`;
   const get=k=>k.split('.').reduce((o,x)=>o[x],r);
   const inp=(label,k,max,rows,ph)=>{const v=get(k);return `<div class="f"><label><span>${label}</span>${cnt(v,max,k)}</label>${rows?`<textarea rows="${rows}" data-k="${k}" placeholder="${ph||''}">${esc(v)}</textarea>`:`<input type="text" data-k="${k}" value="${esc(v)}" placeholder="${ph||''}">`}</div>`;};
@@ -523,6 +555,7 @@ function viewEdit(){
     <h2>${esc(svc.name)} <small style="font-size:13px;color:var(--sub);font-weight:600">${mLabel(m)}</small></h2>
     <div class="meta">${metaHtml(m,svc,r)}</div>
     ${r.note?`<div class="errs">差し戻しコメント：${esc(r.note)}</div>`:''}
+    ${locked?'<div class="viewonly">閲覧のみです。編集するには、ホームから「編集権限を申請する」を押してください。</div>':''}
     <div id="errs"></div>
     <div class="${locked?'locked':''}" id="fields">
       <div class="card"><h3>① 今月のプロダクトアップデート状況 <small>最大3件</small></h3>${list('updates',LIM.updTitle,limBody(r,'updates'))}</div>
@@ -537,7 +570,7 @@ function viewEdit(){
       <button class="btn" id="copyPrev" ${locked?'disabled':''}>前月の内容をコピー</button>
       <button class="btn" id="bulk" ${locked?'disabled':''}>テキスト一括貼り付け</button>
       <span class="spacer"></span>
-      ${r.status==='submitted'||r.status==='approved'?'<button class="btn" id="withdraw">提出を取り下げる</button>':'<button class="btn pri" id="submitBtn">提出</button>'}
+      ${locked?'':(r.status==='submitted'||r.status==='approved'?'<button class="btn" id="withdraw">提出を取り下げる</button>':'<button class="btn pri" id="submitBtn">提出</button>')}
     </div>
     <div class="card" style="margin-top:18px"><h3>作成・編集履歴</h3><div class="hist">${histHtml(r)}</div></div>
     <p class="note" style="margin-top:10px">入力内容は自動で保存されます。入力が終わったら「提出」を押してください。誰がいつ編集したかが記録されます。</p>
@@ -612,6 +645,21 @@ function viewAll(){
   $('#imp').onchange=e=>{const f=e.target.files[0];if(!f)return;f.text().then(t=>{try{S=JSON.parse(t);save();init();toast('読み込みました');}catch(x){toast('読込に失敗しました');}});};
 }
 
+function viewSettings(){
+  viewAdmin();   // 進捗・テンプレート設定・過去号の取り込み
+  const pane=document.querySelector('.pane');
+  pane.querySelectorAll('table tr').forEach(tr=>tr.lastElementChild&&tr.lastElementChild.remove());
+  const reqs=requests.slice().sort((a,b)=>String(a.at)<String(b.at)?-1:1);
+  pane.insertAdjacentHTML('afterbegin',`<button class="btn sm" id="setHome" style="margin-bottom:14px">← ホームに戻る</button>
+   <h2>編集権限</h2>
+   <div class="card"><h3>権限の申請 <small>${reqs.length}件</small></h3>${reqs.length?reqs.map(x=>`<div class="reqrow"><div><b>${esc(x.name)}</b><br><span class="note">${esc(x.email)}　${fmt(x.at)}</span></div><span class="spacer"></span><button class="btn sm ok" data-ap="${esc(x.email)}">承認</button><button class="btn sm" data-rj="${esc(x.email)}">却下</button></div>`).join(''):'<p class="note" style="margin:0">申請はありません。</p>'}</div>
+   <div class="card"><h3>追加で承認した編集者 <small>${access.editors.length}名</small></h3>${access.editors.length?access.editors.map(e=>`<div class="reqrow"><span>${esc(e)}</span><span class="spacer"></span><button class="btn sm" data-rv="${esc(e)}">権限を外す</button></div>`).join(''):'<p class="note" style="margin:0">追加で承認した人はいません。</p>'}<p class="note" style="margin:10px 0 0">最初から編集権限のあるメンバー（設定ファイルで固定）と管理者は、ここには表示されません。</p></div>`);
+  $('#setHome').onclick=()=>{ui.tab='home';render();};
+  const run=async(fn,msg)=>{try{await fn();toast(msg);render();}catch(e){toast('失敗しました：'+(e.message||e));}};
+  document.querySelectorAll('[data-ap]').forEach(b=>b.onclick=()=>run(()=>store.approve(b.dataset.ap.toLowerCase()),'承認しました。編集できるようになります'));
+  document.querySelectorAll('[data-rj]').forEach(b=>b.onclick=()=>run(()=>store.reject(b.dataset.rj),'却下しました'));
+  document.querySelectorAll('[data-rv]').forEach(b=>{b.onclick=()=>{if(confirm(b.dataset.rv+' の編集権限を外しますか？'))run(()=>store.revoke(b.dataset.rv),'権限を外しました');};});
+}
 function viewAdmin(){
   const m=curIssue();
   $('#main').innerHTML=`<div class="pane"><h2>進捗（${mLabel(m)}）</h2>
