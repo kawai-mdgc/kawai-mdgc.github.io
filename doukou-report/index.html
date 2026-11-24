@@ -180,6 +180,11 @@ body.demo .demobar{display:flex}
 .bellbtn svg{width:18px;height:18px}
 .bellbtn .badge{position:absolute;top:-4px;right:-4px;background:#c8223a;color:#fff;border-radius:99px;min-width:18px;height:18px;font-size:11px;font-weight:700;display:none;place-items:center;padding:0 5px}
 #bellMenu{min-width:340px;max-width:min(380px,90vw);padding:6px}
+.btabs{display:flex;gap:4px;padding:4px 4px 6px;border-bottom:1px solid var(--line);margin-bottom:4px}
+.btab{flex:1;white-space:nowrap;border:0;background:none;font-size:12px;font-weight:700;color:var(--sub);padding:8px 6px;border-radius:8px;cursor:pointer}
+.btab.on{background:#f3f4f6;color:#111}
+.btab i{font-style:normal;background:#c8223a;color:#fff;border-radius:9px;font-size:10px;padding:1px 6px;margin-left:5px}
+#bellMenu button.nitem.done b{color:var(--ok)}
 .nhead{font-size:12px;color:var(--sub);padding:8px 12px 4px;font-weight:600}
 #bellMenu button.nitem{display:block;width:100%;text-align:left;border:0;background:none;color:#111;font-weight:500;font-size:13px;line-height:1.6;padding:10px 12px;border-radius:10px;cursor:pointer}
 #bellMenu button.nitem:hover{background:#f3f4f6}
@@ -266,9 +271,11 @@ function buildNotifs(){
   const out=[];if(!me)return out;
   if(adminUI())requests.slice().sort((a,b)=>String(a.at)<String(b.at)?-1:1).forEach(x=>out.push({kind:'info',title:'編集権限の申請',text:`${x.name}さんが編集権限を申請しています。押すと内容を確認できます。`,go:{req:x.email}}));
   if(adminUI())notices.filter(n=>!n.resolved).forEach(n=>out.push({kind:'warn',diff:-1,title:`${n.issue||''} 18時：完了していない事業があります`,text:(n.lines||[]).join(' ／ ')+'　押すと確認済みにできます。',go:{notice:n.id}}));
-  if(driveOn())Object.keys(drive).sort().forEach(k=>{const x=drive[k],sv=S.services.find(v=>v.id===x.service);if(!sv)return;
-    if(me.driveCheck&&!x.result)out.push({kind:'warn',diff:-99,title:`${sv.name} ${mShort(x.month)}：Driveに格納されました`,text:'共有設定が「リンクを知っている全員」になっているか確認してください。押すと確認できます。',go:{drive:k}});
-    else if(me.driveStore&&x.result==='ng')out.push({kind:'warn',diff:-99,title:`${sv.name} ${mShort(x.month)}：共有設定の修正が必要です`,text:`${x.checkedBy?x.checkedBy.name+'さんが':''}「リンクを知っている全員」になっていないと確認しました。押すと内容を確認できます。`,go:{drive:k}});});
+  if(driveOn())Object.keys(drive).sort().forEach(k=>{const x=drive[k],sv=S.services.find(v=>v.id===x.service);if(!sv||x.month<curIssue())return;
+    const nm=`${sv.name} ${mShort(x.month)}`;
+    if(!x.result)out.push({list:true,kind:'warn',diff:-99,mark:'☐',title:`${nm}：Driveに格納されました`,text:me.driveCheck?'共有設定が「リンクを知っている全員」になっているか確認してください。':'共有設定の確認待ちです。',go:{drive:k}});
+    else if(x.result==='ng')out.push({list:true,kind:'warn',diff:-99,mark:'⚠',title:`${nm}：共有設定の修正が必要です`,text:`${x.checkedBy?x.checkedBy.name+'さんが':''}「リンクを知っている全員」になっていないと確認しました。`,go:{drive:k}});
+    else out.push({list:true,kind:'done',diff:-99,mark:'☑',done:true,title:`${nm}：共有設定を確認済み`,text:`${x.checkedBy?x.checkedBy.name+'さんが':''}「リンクを知っている全員」であることを確認しました。`,go:{drive:k}});});
   const dec=(access.decisions||{})[ek(me.email)];
   if(dec&&!readDecisions().includes(dec.at))out.push({kind:'info',title:dec.result==='approved'?'編集権限が承認されました':'編集権限の申請が却下されました',text:dec.result==='approved'?`${dec.by}さんが承認しました。押すと内容を確認できます。`:`${dec.by}さんが対応しました。押すと内容を確認できます。`,go:{decision:dec}});
   if(me.canEdit){
@@ -281,10 +288,15 @@ function buildNotifs(){
   }else if(myReq)out.push({kind:'info',title:'編集権限を申請中です',text:'管理者の承認をお待ちください。',go:null});
   return out.sort((a,b)=>(a.kind==='info'?0:1)-(b.kind==='info'?0:1)||(a.diff??9)-(b.diff??9));   // 申請を先に、次に期限の近い順
 }
+let bellTab='n';
 function updateBell(){
-  if(!me)return;notifs=buildNotifs();const b=$('#bellBadge'),n=notifs.filter(x=>x.go).length;
+  if(!me)return;notifs=buildNotifs();const b=$('#bellBadge'),open=x=>x.go&&!x.done,n=notifs.filter(open).length;
   b.textContent=n||'';b.style.display=n?'grid':'none';
-  $('#bellMenu').innerHTML=`<div class="nhead">通知</div>`+(notifs.length?notifs.map((x,i)=>`<button class="nitem ${x.kind}" data-n="${i}"><b>${esc(x.title)}</b>${esc(x.text)}</button>`).join(''):'<div class="nempty">新しい通知はありません。</div>');
+  const hasList=notifs.some(x=>x.list);if(!hasList)bellTab='n';
+  const cnt=t=>notifs.filter(x=>!!x.list===(t==='c')&&open(x)).length,tab=(t,l)=>`<button class="btab ${bellTab===t?'on':''}" data-bt="${t}">${l}${cnt(t)?`<i>${cnt(t)}</i>`:''}</button>`;
+  const show=notifs.map((x,i)=>({x,i})).filter(o=>!!o.x.list===(bellTab==='c'));
+  $('#bellMenu').innerHTML=(hasList?`<div class="btabs">${tab('n','通知')}${tab('c','チェックリスト')}</div>`:`<div class="nhead">通知</div>`)+(show.length?show.map(({x,i})=>`<button class="nitem ${x.kind}" data-n="${i}"><b>${x.mark?esc(x.mark)+' ':''}${esc(x.title)}</b>${esc(x.text)}</button>`).join(''):`<div class="nempty">${bellTab==='c'?'チェックする項目はありません。':'新しい通知はありません。'}</div>`);
+  document.querySelectorAll('#bellMenu [data-bt]').forEach(t=>t.onclick=e=>{e.stopPropagation();bellTab=t.dataset.bt;updateBell();});
   document.querySelectorAll('#bellMenu [data-n]').forEach(btn=>btn.onclick=()=>{const g=notifs[+btn.dataset.n].go;$('#bellMenu').classList.remove('open');if(!g)return;if(g.notice){const n=notices.find(x=>x.id===g.notice);if(n&&confirm(`${n.issue||''}\n18時の時点で、まだ完了していない事業があります。\n\n${(n.lines||[]).join('\n')}\n\n確認済みにしますか？（ベルから消えます）`))store.resolveNotice(n.id).then(()=>{toast('確認済みにしました');updateBell();}).catch(e=>toast('失敗しました：'+(e.message||e)));return;}if(g.drive){showDrive(g.drive);return;}if(g.req){showRequest(g.req);return;}if(g.decision){showDecision(g.decision);return;}guardLeave(()=>{if(g.open)openReport(g.open[0],g.open[1],'home');else{ui.tab=g.tab;render();}});});
 }
 /* 承認・却下の結果の通知：確認したら既読にする（このブラウザに記録） */
