@@ -359,17 +359,34 @@ function validate(r){
 }
 function effStatus(m,id){const r=(S.reports[m]||{})[id];if(!r)return 'empty';
   if(r.status==='draft'&&!r.count&&!r.ad&&!r.advice&&!r.message&&!r.updates.some(x=>x.title||x.body)&&!r.plans.some(x=>x.title||x.body))return 'empty';return r.status;}
-const isSide=r=>r.layout==='side';   // 標準は縦並び。横並びは手動指定のみ
+/* レイアウト：自動のときは、縦並び → 件数と広告を横並び → 広告とアドバイスを横並び の順に試し、
+   項目ごとの余白が18pxを超える最初の形にする（どれも届かなければ余白が最大の形） */
+const AUTO_MIN_GAP=18, LAYOUT_CACHE=new Map();
+const LAY_NAME={stack:'すべて縦並び',side:'件数と広告動向を横並び',side2:'広告動向とアドバイスを横並び'};
+function measureGap(svc,r,m,lay){
+  const box=document.createElement('div');box.style.cssText='position:absolute;left:-9999px;top:0;width:595px;visibility:hidden';
+  document.body.appendChild(box);box.innerHTML=pageHtml(svc,r,m,lay);
+  const bd=box.querySelector('.bd'),cs=getComputedStyle(bd),avail=bd.clientHeight-parseFloat(cs.paddingTop)-parseFloat(cs.paddingBottom);
+  const kids=[...bd.children],sum=kids.reduce((a,e)=>a+e.offsetHeight,0);box.remove();
+  return (avail-sum)/Math.max(1,kids.length-1);
+}
+function resolveLayout(svc,r,m){
+  const key=svc.id+'|'+bodyJson(r);if(LAYOUT_CACHE.has(key))return LAYOUT_CACHE.get(key);
+  let best='stack',bestGap=-1e9;
+  for(const lay of ['stack','side','side2']){const g=measureGap(svc,r,m,lay);if(g>AUTO_MIN_GAP){best=lay;break;}if(g>bestGap){best=lay;bestGap=g;}}
+  if(LAYOUT_CACHE.size>300)LAYOUT_CACHE.clear();LAYOUT_CACHE.set(key,best);return best;
+}
+const effLayout=(svc,r,m)=>r.layout==='auto'||!LAY_NAME[r.layout]&&r.layout!=='stack'?resolveLayout(svc,r,m):(r.layout||'stack');
 
 /* ページ描画（レイアウトはすべて自動。デザイナーの微調整相当の処理） */
-function pageHtml(svc,r,m){
+function pageHtml(svc,r,m,forceLay){
   const ph=(v,t)=>v?esc(v):`<span class="ph">${t}</span>`;
   const ups=r.updates.filter(x=>x.title||x.body), pls=r.plans.filter(x=>x.title||x.body);
   const num=ups.length>1;
   const sec=(title,inner)=>`<section><div class="sh"><span>${title}</span></div>${inner}</section>`;
-  const dyn = isSide(r)
-    ? `<div class="row2">${sec('直近の件数動向',`<p class="tx">${ph(r.count,'入力してください')}</p>`)}${sec('直近の広告動向',`<p class="tx">${ph(r.ad,'入力してください')}</p>`)}</div>`
-    : sec('直近の件数動向',`<p class="tx">${ph(r.count,'入力してください')}</p>`)+sec('直近の広告動向',`<p class="tx">${ph(r.ad,'入力してください')}</p>`);
+  const lay=forceLay||effLayout(svc,r,m);
+  const bCount=sec('直近の件数動向',`<p class="tx">${ph(r.count,'入力してください')}</p>`),bAd=sec('直近の広告動向',`<p class="tx">${ph(r.ad,'入力してください')}</p>`),bAdv=sec('ワンポイントアドバイス',`<p class="tx">${ph(r.advice,'入力してください')}</p>`);
+  const dyn = lay==='side' ? `<div class="row2">${bCount}${bAd}</div>${bAdv}` : lay==='side2' ? `${bCount}<div class="row2">${bAd}${bAdv}</div>` : bCount+bAd+bAdv;
   const bg=svc.base?`background-image:url(${svc.base});`:'';
   return `<div class="page" style="${bg}--c:${svc.color};--ink2:${svc.ink||inkOn(svc.color)}">
    ${svc.base?'':`<div class="fb"><b>${esc(svc.name)}</b><div>動向<br>レポート</div></div>`}
@@ -378,7 +395,6 @@ function pageHtml(svc,r,m){
     <div class="top">${sec('今月のプロダクトアップデート状況', ups.length?ups.map((u,i)=>`<div class="it"><h5>${num?`<span class="n">${i+1}</span>`:''}${ph(u.title,'')}</h5><p>${esc(u.body)}</p></div>`).join(''):`<p class="tx">${ph('','アップデートが入ります')}</p>`)}</div>
     ${sec('今後のプロダクトアップデート予定', pls.length?pls.map(u=>`<div class="it sq"><h5>${esc(u.title)}</h5><p>${esc(u.body)}</p></div>`).join(''):`<p class="tx">${ph('','予定が入ります')}</p>`)}
     ${dyn}
-    ${sec('ワンポイントアドバイス',`<p class="tx">${ph(r.advice,'入力してください')}</p>`)}
     <div class="msg" style="--brush:${svc.brush?`url(${svc.brush})`:`linear-gradient(${svc.color}55,${svc.color}55)`}"><span class="lb"><i class="l"></i><span class="t">運営者からのメッセージ</span><i class="r"></i></span><p>${ph(r.message,'入力してください')}</p></div>
    </div></div>`;
 }
@@ -499,7 +515,7 @@ function viewEdit(){
       <div class="card"><h3>② 今後のプロダクトアップデート予定 <small>最大3件</small></h3>${list('plans',L.planTitle,L.planBody)}</div>
       <div class="card"><h3>③ 直近の件数動向・広告動向 <small>短ければ自動で横並び</small></h3>
         ${inp('直近の件数動向','count',L.count,5)}${inp('直近の広告動向','ad',L.ad,5)}
-        <div class="f"><label><span>レイアウト</span></label><select data-k="layout"><option value="auto">縦並び（標準）</option><option value="side">横並び</option></select></div></div>
+        <div class="f"><label><span>レイアウト</span></label><select data-k="layout"><option value="auto">自動（余白が18px以下なら横並び）</option><option value="stack">すべて縦並び</option><option value="side">件数と広告動向を横並び</option><option value="side2">広告動向とアドバイスを横並び</option></select></div></div>
       <div class="card"><h3>④ ワンポイントアドバイス</h3>${inp('アドバイス','advice',L.advice,3)}</div>
       <div class="card"><h3>⑤ 運営者からのメッセージ</h3>${inp('メッセージ','message',L.message,6)}</div>
     </div>
@@ -539,7 +555,7 @@ function viewEdit(){
 }
 function draw(svc,r,m){const box=$('#pv');if(!box)return;const w=Math.min($('.previewCol').clientWidth-40,520);
   box.innerHTML=scaled(pageHtml(svc,r,m),w);fitAll(box);
-  $('#lay').textContent=`件数・広告動向：${isSide(r)?'横並び':'縦並び'}（${len(r.count)+len(r.ad)}字）`;}
+  $('#lay').textContent=`レイアウト：${LAY_NAME[effLayout(svc,r,m)]}${r.layout==='auto'?'（自動）':''}`;}
 
 const BULK=`アップデート1: 見出し | 本文
 アップデート2: 見出し | 本文
