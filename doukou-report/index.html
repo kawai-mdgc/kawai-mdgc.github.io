@@ -145,6 +145,7 @@ body:not(.authed) .login{display:grid}
 .hc:hover{transform:translateY(-3px);box-shadow:0 10px 24px rgba(0,0,0,.14);background:#dedfd8}
 .more{position:absolute;top:8px;right:8px;width:34px;height:34px;border-radius:50%;border:0;background:transparent;color:#555;font-size:14px;letter-spacing:1px;cursor:pointer;display:grid;place-items:center;z-index:2}
 .hc:hover .more{background:#fff}
+.hc .cap{padding:0 30px}
 .more:hover{background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.15)}
 .cmenu{display:none;position:absolute;top:46px;right:8px;background:#fff;border-radius:12px;box-shadow:0 6px 20px rgba(0,0,0,.18);padding:6px;z-index:5;min-width:120px}
 .cmenu.open{display:block}
@@ -334,6 +335,7 @@ function inkOn(hex){const n=parseInt(hex.slice(1),16),r=n>>16,g=n>>8&255,b=n&255
 /* 月 */
 function monthOptions(){const now=new Date(),out=[];for(let i=-1;i<=3;i++){const d=new Date(now.getFullYear(),now.getMonth()+i,1);out.push(d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'));}
   [...Object.keys(S.reports),curIssue()].forEach(m=>{if(!out.includes(m))out.push(m);});return out.sort();}
+const mShort=m=>m.slice(2,4)+'年'+Number(m.slice(5))+'月号';
 const mLabel=m=>m.slice(0,4)+'年'+Number(m.slice(5))+'月号';
 function prevMonth(m){const [y,mo]=m.split('-').map(Number),d=new Date(y,mo-2,1);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');}
 function getReport(m,id){S.reports[m]??={};S.reports[m][id]??=emptyReport();return S.reports[m][id];}
@@ -404,7 +406,7 @@ function viewHome(){
   Object.keys(S.reports).filter(m=>m>=cur).sort().reverse().forEach(m=>S.services.forEach(s=>{if(S.reports[m][s.id])ents.push({m,s});}));
   const missing=S.services.filter(s=>!['submitted','approved'].includes(((S.reports[cur]||{})[s.id]||{}).status));
   const card=({m,s})=>{const st=effStatus(m,s.id),r=peek(m,s.id);
-    return `<div class="gcell hc" data-open="${m}|${s.id}"><button class="more" data-more="${m}|${s.id}" aria-label="メニュー">･･･</button><div class="cmenu" data-menu="${m}|${s.id}"><button data-rm="${m}|${s.id}">削除</button></div><div class="cap"><b>${esc(s.name)}</b><span>${mLabel(m)}</span></div>${scaled(pageHtml(s,r,m),200)}
+    return `<div class="gcell hc" data-open="${m}|${s.id}"><button class="more" data-more="${m}|${s.id}" aria-label="メニュー">･･･</button><div class="cmenu" data-menu="${m}|${s.id}"><button data-rm="${m}|${s.id}">削除</button></div><div class="cap"><b>${esc(s.name)}</b><span>${mShort(m)}</span></div>${scaled(pageHtml(s,r,m),200)}
     <div><span class="pill ${STATUS[st][1]}">${STATUS[st][0]}</span> <span class="note">${r.updatedBy?esc(r.updatedBy.name)+' '+fmt(r.updatedAt):''}</span></div>
 </div>`;};
   $('#main').innerHTML=`<div class="pane"><div style="display:flex;align-items:center;gap:12px;margin-bottom:6px;flex-wrap:wrap"><h2 style="margin:0">${mLabel(cur)}</h2><span class="pill st-submitted">現在号</span><span class="deadline">${deadlineInfo()}</span><span class="spacer"></span><button class="btn" id="goLog">📁 ログ</button><button class="btn pri" id="new">＋ 新規作成</button></div>
