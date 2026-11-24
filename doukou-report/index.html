@@ -172,7 +172,7 @@ body:not(.authed) .login{display:grid}
 /* 動向レポート作成ツール（プロトタイプ）
    Googleログイン(@madoguchi.inc限定)＋Firestoreに保存。config.js 未設定時はデモ（ブラウザ内保存） */
 const L = {updTitle:40, updBody:280, planTitle:40, planBody:160, count:600, ad:600, advice:200, message:480};
-const STATUS = {empty:['未入力','st-empty'], draft:['入力中','st-draft'], submitted:['提出済み','st-submitted'], approved:['承認済み','st-approved']};
+const STATUS = {empty:['未入力','st-empty'], draft:['保存済み','st-approved'], submitted:['保存済み','st-approved'], approved:['保存済み','st-approved']};
 const LS = 'doukou-report-v5';
 
 const DEFAULT = {deadlineDay:12, services:[
@@ -390,7 +390,6 @@ function viewHome(){
   document.querySelectorAll('[data-open]').forEach(b=>b.onclick=()=>{const [m,id]=b.dataset.open.split('|');openReport(m,id);});
   document.querySelectorAll('[data-dup]').forEach(b=>b.onclick=()=>{const [m,id]=b.dataset.dup.split('|');newDialog(id,m);});
   document.querySelectorAll('[data-rm]').forEach(b=>b.onclick=()=>{const [m,id]=b.dataset.rm.split('|');
-    if(peek(m,id).status==='approved'&&ui.role==='sales'){toast('承認済みのレポートは管理者のみ削除できます');return;}
     if(confirm(`${S.services.find(x=>x.id===id).name}（${mLabel(m)}）を削除します。元に戻せません。よろしいですか？`)){delete S.reports[m][id];if(!Object.keys(S.reports[m]).length)delete S.reports[m];save();refreshMonths();render();}});
 }
 
@@ -450,7 +449,7 @@ function nextMonth(m){const [y,mo]=m.split('-').map(Number),d=new Date(y,mo,1);r
 function viewEdit(){
   const m=ui.month,svc=S.services.find(s=>s.id===ui.svc)||S.services[0];ui.svc=svc.id;
   const r=getReport(m,svc.id),st=effStatus(m,svc.id);
-  const locked=r.status==='approved'||(r.status==='submitted'&&ui.role==='sales');
+  const locked=false;
   const cnt=(v,max)=>`<span class="cnt ${len(v)>max?'over':''}">${len(v)}/${max}</span>`;
   const get=k=>k.split('.').reduce((o,x)=>o[x],r);
   const inp=(label,k,max,rows,ph)=>{const v=get(k);return `<div class="f"><label><span>${label}</span>${cnt(v,max)}</label>${rows?`<textarea rows="${rows}" data-k="${k}" placeholder="${ph||''}">${esc(v)}</textarea>`:`<input type="text" data-k="${k}" value="${esc(v)}" placeholder="${ph||''}">`}</div>`;};
@@ -477,12 +476,10 @@ function viewEdit(){
       <button class="btn" id="copyPrev" ${locked?'disabled':''}>前月の内容をコピー</button>
       <button class="btn" id="bulk" ${locked?'disabled':''}>テキスト一括貼り付け</button>
       <span class="spacer"></span>
-      ${r.status==='submitted'&&ui.role==='sales'?'<button class="btn" id="withdraw">提出を取り下げる</button>':''}
-      ${r.status==='draft'||r.status==='empty'?'<button class="btn pri" id="submit">提出する</button>':''}
-      ${ui.role==='admin'&&r.status==='submitted'?'<button class="btn ok" id="approve">承認</button>':''}
+      <button class="btn pri" id="saveBtn">保存</button>
     </div>
     <div class="card" style="margin-top:18px"><h3>作成・編集履歴</h3><div class="hist">${(r.history||[]).length?[...r.history].reverse().slice(0,12).map(h=>`${fmt(h.at)}　<b>${esc(h.by.name)}</b>　${ACT[h.action]||h.action}`).join('<br>'):'まだ履歴がありません（最初の入力から記録されます）'}</div></div>
-    <p class="note" style="margin-top:10px">入力内容は自動で保存され、誰がいつ編集したかが記録されます。</p>
+    <p class="note" style="margin-top:10px">入力内容は自動でも保存されます。誰がいつ編集したかが記録されます。</p>
   </div>
   <div class="previewCol"><div class="lay" id="lay"></div><div id="pv"></div><button class="btn sm" id="pdf1">このサービスのPDFを保存</button></div>`;
   $('#back').onclick=()=>{ui.tab=ui.back||'home';render();};
@@ -498,11 +495,12 @@ function viewEdit(){
   $('#bulk')?.addEventListener('click',()=>bulkDialog(r));
   document.querySelectorAll('[data-add]').forEach(b=>b.onclick=()=>{const k=b.dataset.add;r['n_'+k]=Math.min(3,nShow(k)+1);if(r.status==='empty')r.status='draft';save();render();});
   document.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{const [k,i]=b.dataset.del.split(':');const n=nShow(k);r[k].splice(+i,1);r[k].push({title:'',body:''});r['n_'+k]=Math.max(1,n-1);save();render();});
-  $('#submit')?.addEventListener('click',()=>{const e=validate(r);
-    if(e.length){$('#errs').innerHTML=`<div class="errs">提出できません。以下を修正してください。<ul>${e.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></div>`;$('#errs').scrollIntoView({behavior:'smooth'});return;}
-    r.status='submitted';r.note='';save();render();toast('提出しました');});
-  $('#withdraw')?.addEventListener('click',()=>{r.status='draft';save();render();});
-  $('#approve')?.addEventListener('click',()=>{r.status='approved';save();render();toast('承認しました');});
+  $('#saveBtn').onclick=async()=>{
+    if(r.status==='empty')r.status='draft';
+    await flush();
+    const e=validate(r).filter(x=>x.includes('オーバー'));
+    toast(e.length?'保存しました（文字数が上限を超えている項目があります。文字が小さく表示されます）':'保存しました');
+  };
   $('#pdf1').onclick=()=>printPages([pageHtml(svc,r,m)],`動向レポート_${svc.name}_${m}`);
   draw(svc,r,m);
 }
