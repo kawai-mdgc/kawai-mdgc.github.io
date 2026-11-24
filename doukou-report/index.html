@@ -144,6 +144,10 @@ body:not(.authed) .login{display:grid}
 .gbtn:hover{background:#f9fafb}
 .login .err{margin-top:16px;font-size:12px;color:var(--ng);line-height:1.6}
 .login .demo{margin-top:14px;font-size:11px;color:var(--sub)}
+.pres{position:absolute;right:12px;bottom:12px;display:flex;padding-left:8px}
+.pres .pa{width:24px;height:24px;border-radius:50%;border:2px solid #e9e9e4;background:#6b4bd6;color:#fff;font-size:9px;font-weight:700;display:grid;place-items:center;overflow:hidden;margin-left:-8px;box-sizing:content-box}
+.pres .pa img{width:100%;height:100%;object-fit:cover;display:block}
+.pres .pa.more{background:#6b7280}
 .hc{position:relative;cursor:pointer;transition:transform .15s,box-shadow .15s,background .15s}
 .hc:hover{transform:translateY(-3px);box-shadow:0 10px 24px rgba(0,0,0,.14);background:#dedfd8}
 .more{position:absolute;top:8px;right:8px;width:34px;height:34px;border-radius:50%;border:0;background:transparent;color:#555;font-size:14px;letter-spacing:1px;cursor:pointer;display:grid;place-items:center;z-index:2}
@@ -333,7 +337,7 @@ const driveOn=()=>!!(me&&!me.viewAs&&me.driveCheck);
 function driveChip(m,id){
   if(!driveOn()||!inScope(id))return '';const x=drive[key(m,id)];if(!x||x.result==='ok')return '';   // 共有OKのときは、カードに何も出さない
   const [t,c]=['Drive：共有設定が必要','var(--ng)'];
-  return `<div style="margin-top:6px"><span class="note" style="color:${c};font-weight:700">● ${t}</span></div>`;
+  return `<div style="margin-top:6px;padding-right:70px"><span class="note" style="color:${c};font-weight:700">● ${t}</span></div>`;
 }
 function showDrive(k){
   const x=drive[k];if(!x){toast('この項目はすでに消えています');return;}
@@ -346,6 +350,20 @@ function showDrive(k){
    <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap"><button class="btn" id="dvClose">閉じる</button>${x.fileUrl?`<a class="btn pri" href="${esc(x.fileUrl)}" target="_blank" rel="noopener">Driveで開く</a>`:''}</div></div>`;
   document.body.appendChild(d);
   d.querySelector('#dvClose').onclick=()=>d.remove();
+}
+/* いま、そのレポートを開いている人（オンライン）のアイコン。Googleのアイコンを使い、無ければ名前の頭文字 */
+let presence=[],lastPresSig=null;
+const initials=nm=>{nm=(nm||'?').trim();return /[\u3040-\u30ff\u3400-\u9fff]/.test(nm)?nm.replace(/\s/g,'').slice(-2):nm.slice(0,1).toUpperCase();};
+function presHtml(m,id){
+  const l=presence.filter(p=>p.month===m&&p.svc===id&&Date.now()-p.ts<90000);if(!l.length)return '';
+  const av=p=>`<span class="pa" title="${esc(p.name)}">${p.photo?`<img src="${esc(p.photo)}" referrerpolicy="no-referrer" alt="">`:esc(initials(p.name))}</span>`;
+  return l.slice(0,3).map(av).join('')+(l.length>3?`<span class="pa more" title="${esc(l.slice(3).map(p=>p.name).join('、'))}">+${l.length-3}</span>`:'');
+}
+const paintPresence=()=>document.querySelectorAll('.pres').forEach(el=>{el.innerHTML=presHtml(el.dataset.pm,el.dataset.ps);});
+async function beat(gone){
+  if(!me||!db||DEMO_ROLE||!me.email)return;
+  const ref=db.collection('presence').doc(me.email.toLowerCase());
+  try{if(gone)await ref.delete();else await ref.set({email:me.email.toLowerCase(),name:me.name,photo:me.photo||'',month:ui.tab==='edit'?ui.month:null,svc:ui.tab==='edit'?ui.svc:null,ts:Date.now()});}catch(e){}
 }
 const VA_NAME={admin:'管理者',manager:'事業部長',member:'メンバー'};
 function setViewAs(v){
@@ -458,6 +476,7 @@ const FireStore={
         const was=me.canEdit;recalcRole();applyRoleUI();
         if(f){f=false;res();}else if(started&&was!==me.canEdit){toast(me.canEdit?'編集権限が付与されました':'編集権限が外れました');render();}
       },()=>{if(f){f=false;res();}});});
+    db.collection('presence').onSnapshot(sn=>{presence=sn.docs.map(d=>d.data());paintPresence();},()=>{});
     if(me.driveCheck)db.collection('driveChecks').onSnapshot(sn=>{drive={};sn.docs.forEach(d=>{const v=d.data();drive[key(v.month,v.service)]=v;});updateBell();if(started&&(ui.tab==='home'||ui.tab==='log')&&!isTyping())render();},()=>{});
     if(me.isAdmin)db.collection('adminNotices').onSnapshot(sn=>{notices=sn.docs.map(d=>({id:d.id,...d.data()}));updateBell();},()=>{});
     if(me.isAdmin)db.collection('requests').onSnapshot(sn=>{requests=sn.docs.map(d=>d.data());applyRoleUI();if(started&&ui.tab==='settings'&&!isTyping())render();},()=>{});
@@ -495,6 +514,11 @@ function startApp(){
   const nm=(me.name||'?').trim(),cjk=/[\u3040-\u30ff\u3400-\u9fff]/.test(nm);
   $('#uAv').innerHTML=me.photo?`<img src="${esc(me.photo)}" referrerpolicy="no-referrer" alt="">`:esc(cjk?nm.replace(/\s/g,'').slice(-2):nm.slice(0,1).toUpperCase());
   $('#uMenu').classList.remove('open');
+  if(!window._presTimer){
+    window._presTimer=setInterval(()=>{if(document.visibilityState==='visible')beat();paintPresence();},30000);
+    document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')beat();else beat(true);});
+    window.addEventListener('pagehide',()=>{beat(true);});
+  }
   init();
 }
 async function boot(){
@@ -503,11 +527,12 @@ async function boot(){
   $('#bellBtn').onclick=e=>{e.stopPropagation();$('#uMenu').classList.remove('open');$('#bellMenu').classList.toggle('open');};
   $('#settingsBtn').onclick=()=>guardLeave(()=>{ui.tab='settings';render();});
   $('#goHome').onclick=()=>{if(me)guardLeave(()=>{ui.tab='home';render();});};
-  $('#logout').onclick=async()=>{await flush();if(auth)await auth.signOut();me=null;store=null;started=false;access={editors:[],decisions:{}};requests=[];myReq=null;drive={};showLogin();};
+  $('#logout').onclick=async()=>{await flush();await beat(true);presence=[];if(auth)await auth.signOut();me=null;store=null;started=false;access={editors:[],decisions:{}};requests=[];myReq=null;drive={};showLogin();};
   if(DEMO_ROLE){
     me={name:{admin:'管理者（デモ）',manager:'事業部長（デモ）',member:'メンバー（デモ）'}[DEMO_ROLE],email:'demo@'+DOMAIN,isAdmin:DEMO_ROLE==='admin',baseEditor:DEMO_ROLE!=='member',driveCheck:DEMO_ROLE!=='member',heads:DEMO_ROLE==='manager'?['osouji']:[],sim:null};
     if(DEMO_ROLE==='admin'){const t=Date.now();requests=[{email:'sample1@madoguchi.inc',name:'サンプル 一郎',at:new Date(t-3600e3).toISOString()},{email:'sample2@madoguchi.inc',name:'サンプル 二郎',at:new Date(t-600e3).toISOString()}];}
     store=DemoStore;await store.init();document.body.classList.add('demo');
+    {const c=curIssue(),far=Date.now()+864e5,pe=(n,id)=>({name:n,photo:'',month:c,svc:id,ts:far});presence=[pe('サンプル 花子','osouji'),pe('サンプル 次郎','osouji'),pe('サンプル 三郎','fuyouhin')];}
     if(DEMO_ROLE!=='member'){const c=curIssue(),t=Date.now(),mk=(id,nm,ok,ago)=>({month:c,service:id,fileName:`${nm}_${c.replace('-','')}.pdf`,fileUrl:'',storedAt:new Date(t-ago).toISOString(),storedBy:{name:'サンプル 太郎',email:''},result:ok?'ok':'ng',shared:ok,auto:true});drive[key(c,'osouji')]=mk('osouji','おそうじ合衆国',false,1800e3);drive[key(c,'fuyouhin')]=mk('fuyouhin','不用品回収の窓口',true,7200e3);}
     $('#demoBar').innerHTML=`<b>デモ表示</b><span>架空のサンプルです。入力しても保存されません。</span><span style="flex:1"></span><a href="?demo=admin" class="${DEMO_ROLE==='admin'?'on':''}">管理者（設定・承認ができる）</a><a href="?demo=manager" class="${DEMO_ROLE==='manager'?'on':''}">事業部長（編集・削除できる）</a><a href="?demo=member" class="${DEMO_ROLE==='member'?'on':''}">メンバー（閲覧のみ）</a>`;
     $('#logout').onclick=()=>{location.href=location.pathname;};
@@ -641,6 +666,7 @@ function printPages(list,title){const pr=$('#printRoot');pr.innerHTML=list.join(
 /* 画面 */
 function render(){
   updateBell();
+  {const sg=ui.tab==='edit'?ui.month+'|'+ui.svc:'';if(sg!==lastPresSig){lastPresSig=sg;beat();}}
   if(!['home','log','edit'].concat(adminUI()?['settings']:[]).includes(ui.tab))ui.tab='home';
   $('#tabs').innerHTML='';
   ({home:viewHome,log:viewLog,edit:viewEdit,settings:viewSettings,all:viewAll,admin:viewAdmin,spec:viewSpec})[ui.tab]();
@@ -661,7 +687,7 @@ function viewHome(){
   const missing=S.services.filter(s=>!['submitted','approved'].includes(((S.reports[cur]||{})[s.id]||{}).status));
   const can=me.canEdit;
   const card=({m,s})=>{const st=effStatus(m,s.id),r=peek(m,s.id);
-    return `<div class="gcell hc" data-open="${m}|${s.id}">${can?`<button class="more" data-more="${m}|${s.id}" aria-label="メニュー">･･･</button><div class="cmenu" data-menu="${m}|${s.id}"><button data-rm="${m}|${s.id}">削除</button></div>`:''}<div class="cap"><b>${esc(s.name)}</b><span>${mShort(m)}</span></div>${scaled(pageHtml(s,r,m),200)}
+    return `<div class="gcell hc" data-open="${m}|${s.id}">${can?`<button class="more" data-more="${m}|${s.id}" aria-label="メニュー">･･･</button><div class="cmenu" data-menu="${m}|${s.id}"><button data-rm="${m}|${s.id}">削除</button></div>`:''}<div class="cap"><b>${esc(s.name)}</b><span>${mShort(m)}</span></div><div class="pres" data-pm="${m}" data-ps="${s.id}">${presHtml(m,s.id)}</div>${scaled(pageHtml(s,r,m),200)}
     <div><span class="pill ${STATUS[st][1]}">${STATUS[st][0]}</span> <span class="note">${r.updatedBy?esc(r.updatedBy.name)+' '+fmt(r.updatedAt):''}</span></div>${driveChip(m,s.id)}
 </div>`;};
   $('#main').innerHTML=`<div class="pane"><div style="display:flex;align-items:center;gap:12px;margin-bottom:6px;flex-wrap:wrap"><h2 style="margin:0">${mLabel(cur)}</h2><span class="pill st-submitted">現在号</span>${me.sim?`<button class="btn sm" id="endSim" title="自分だけの表示です">テスト表示中：${me.sim.replace(/-0?/g,'/')} として表示 ✕</button>`:''}<span class="deadline">${deadlineInfo()}</span><span class="spacer"></span><button class="btn" id="goLog">📁 ログ</button>${can?'<button class="btn pri" id="new">＋ 新規作成</button>':''}</div>
@@ -697,7 +723,7 @@ function viewLog(){
   } else {
     const items=past.filter(p=>p.y===logPath.y&&p.s.id===logPath.s);
     body=`<div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(236px,1fr))">${items.map(({m,s})=>{const st=effStatus(m,s.id),r=peek(m,s.id);
-      return `<div class="gcell hc" data-open="${m}|${s.id}"><button class="more" data-more="${m}|${s.id}" aria-label="メニュー">･･･</button><div class="cmenu" data-menu="${m}|${s.id}"><button class="neutral" data-lp="${m}|${s.id}">PDF</button></div><div class="cap"><b>${esc(s.name)}</b><span>${mShort(m)}</span></div>${scaled(pageHtml(s,r,m),200)}
+      return `<div class="gcell hc" data-open="${m}|${s.id}"><button class="more" data-more="${m}|${s.id}" aria-label="メニュー">･･･</button><div class="cmenu" data-menu="${m}|${s.id}"><button class="neutral" data-lp="${m}|${s.id}">PDF</button></div><div class="cap"><b>${esc(s.name)}</b><span>${mShort(m)}</span></div><div class="pres" data-pm="${m}" data-ps="${s.id}">${presHtml(m,s.id)}</div>${scaled(pageHtml(s,r,m),200)}
       <div><span class="pill ${STATUS[st][1]}">${STATUS[st][0]}</span> <span class="note">${r.updatedBy?esc(r.updatedBy.name)+' '+fmt(r.updatedAt):''}</span></div></div>`;}).join('')}</div>`;
   }
   $('#main').innerHTML=`<div class="pane"><button class="btn sm" id="logHome" style="margin-bottom:14px">← ホームに戻る</button><h2>ログ</h2>${crumbs}${body}</div>`;
