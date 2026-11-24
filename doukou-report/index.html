@@ -174,6 +174,19 @@ body.demo .demobar{display:flex}
 .umenu .vsw button:hover{background:#f3f4f6}
 .umenu .vsw button.on::before{content:"✓";margin-right:6px}
 .umenu .vsw button:not(.on)::before{content:"";display:inline-block;width:1em;margin-right:6px}
+.bellwrap{position:relative}
+.bellbtn{position:relative;width:38px;height:38px;border-radius:50%;border:1px solid var(--line);background:#fff;display:grid;place-items:center;cursor:pointer;color:#333}
+.bellbtn:hover{background:#f3f4f6}
+.bellbtn svg{width:18px;height:18px}
+.bellbtn .badge{position:absolute;top:-4px;right:-4px;background:#c8223a;color:#fff;border-radius:99px;min-width:18px;height:18px;font-size:11px;font-weight:700;display:none;place-items:center;padding:0 5px}
+#bellMenu{min-width:340px;max-width:min(380px,90vw);padding:6px}
+.nhead{font-size:12px;color:var(--sub);padding:8px 12px 4px;font-weight:600}
+#bellMenu button.nitem{display:block;width:100%;text-align:left;border:0;background:none;color:#111;font-weight:500;font-size:13px;line-height:1.6;padding:10px 12px;border-radius:10px;cursor:pointer}
+#bellMenu button.nitem:hover{background:#f3f4f6}
+#bellMenu button.nitem b{display:block;font-size:12px;margin-bottom:2px}
+#bellMenu button.nitem.warn b{color:#c8223a}
+#bellMenu button.nitem.info b{color:#2456d6}
+#bellMenu .nempty{padding:14px 12px;font-size:13px;color:var(--sub)}
 .hist{font-size:12px;line-height:1.9;color:var(--sub)}
 .hist b{color:var(--ink)}
 </style>
@@ -193,6 +206,7 @@ body.demo .demobar{display:flex}
     <div class="logo" id="goHome" style="cursor:pointer"><i><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></i><span>動向レポート作成ツール</span></div>
     <div class="tabs" id="tabs"></div>
     <div class="spacer"></div>
+    <div class="bellwrap"><button class="bellbtn" id="bellBtn" aria-label="通知"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg><span class="badge" id="bellBadge"></span></button><div class="umenu" id="bellMenu"></div></div>
     <button class="gearbtn" id="settingsBtn">⚙ 設定<span class="badge" id="reqBadge"></span></button>
     <div class="user"><button class="userbtn" id="userBtn" aria-haspopup="true" aria-expanded="false"><div class="av" id="uAv"></div><b id="uName"></b></button>
       <div class="umenu" id="uMenu"><div class="vsw" id="vsw"><div class="vl">見え方の確認（自分の権限は変わりません）</div><button data-va="admin">管理者</button><button data-va="manager">事業部長</button><button data-va="member">メンバー</button></div><button id="logout"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg><span>ログアウト</span></button></div></div>
@@ -242,6 +256,28 @@ const sha=async t=>{const b=await crypto.subtle.digest('SHA-256',new TextEncoder
 /* 権限：管理者（設定・承認ができる）／編集者（編集・削除ができる）／それ以外は閲覧のみ */
 function recalcRole(){if(!me)return;me.realCanEdit=!!(me.isAdmin||me.baseEditor||access.editors.includes((me.email||'').toLowerCase()));me.canEdit=me.viewAs==='member'?false:me.realCanEdit;}
 const adminUI=()=>!!(me&&me.isAdmin&&(!me.viewAs||me.viewAs==='admin'));   // 「見え方の確認」で事業部長・メンバーを選んでいる間は、管理者の画面を出さない
+/* 通知：管理者には権限の申請、編集できる人には「提出期限の前日・当日・超過」の提出のお願いを出す */
+const startOfDay=d=>new Date(d.getFullYear(),d.getMonth(),d.getDate());
+let notifs=[];
+function buildNotifs(){
+  const out=[];if(!me)return out;
+  if(adminUI())requests.slice().sort((a,b)=>String(a.at)<String(b.at)?-1:1).forEach(x=>out.push({kind:'info',title:'編集権限の申請',text:`${x.name}さんが編集権限を申請しています。`,go:{tab:'settings'}}));
+  if(me.canEdit){
+    const cur=curIssue(),[y,mo]=cur.split('-').map(Number),dl=new Date(y,mo-2,S.deadlineDay),diff=Math.round((startOfDay(dl)-startOfDay(nowD()))/86400000),md=`${dl.getMonth()+1}/${dl.getDate()}`;
+    if(diff<=1)S.services.forEach(sv=>{
+      const r=(S.reports[cur]||{})[sv.id];if(r&&['submitted','approved'].includes(r.status))return;
+      const when=diff===1?`提出期限は明日（${md}）です。`:diff===0?`提出期限は今日（${md}）です。`:`提出期限（${md}）を過ぎています。`;
+      out.push({kind:'warn',diff,title:diff<0?'提出期限を過ぎています':diff===0?'今日が提出期限です':'明日が提出期限です',text:`「${sv.name}」${mShort(cur)}の${when}提出してください。`,go:r?{open:[cur,sv.id]}:{tab:'home'}});
+    });
+  }else if(myReq)out.push({kind:'info',title:'編集権限を申請中です',text:'管理者の承認をお待ちください。',go:null});
+  return out.sort((a,b)=>(a.kind==='info'?0:1)-(b.kind==='info'?0:1)||(a.diff??9)-(b.diff??9));   // 申請を先に、次に期限の近い順
+}
+function updateBell(){
+  if(!me)return;notifs=buildNotifs();const b=$('#bellBadge'),n=notifs.filter(x=>x.go).length;
+  b.textContent=n||'';b.style.display=n?'grid':'none';
+  $('#bellMenu').innerHTML=`<div class="nhead">通知</div>`+(notifs.length?notifs.map((x,i)=>`<button class="nitem ${x.kind}" data-n="${i}"><b>${esc(x.title)}</b>${esc(x.text)}</button>`).join(''):'<div class="nempty">新しい通知はありません。</div>');
+  document.querySelectorAll('#bellMenu [data-n]').forEach(btn=>btn.onclick=()=>{const g=notifs[+btn.dataset.n].go;$('#bellMenu').classList.remove('open');if(!g)return;guardLeave(()=>{if(g.open)openReport(g.open[0],g.open[1],'home');else{ui.tab=g.tab;render();}});});
+}
 const VA_NAME={admin:'管理者',manager:'事業部長',member:'メンバー'};
 function setViewAs(v){
   me.viewAs=v==='admin'?null:v;recalcRole();applyRoleUI();
@@ -250,7 +286,7 @@ function setViewAs(v){
   if(ui.tab==='settings'&&!adminUI())ui.tab='home';
   render();
 }
-function applyRoleUI(){if(!me)return;$('#settingsBtn').style.display=adminUI()?'inline-flex':'none';const n=requests.length,b=$('#reqBadge');b.textContent=n||'';b.style.display=n?'inline-grid':'none';}
+function applyRoleUI(){if(!me)return;$('#settingsBtn').style.display=adminUI()?'inline-flex':'none';const n=requests.length,b=$('#reqBadge');b.textContent=n||'';b.style.display=n?'inline-grid':'none';updateBell();}
 const META = ['createdBy','createdAt','updatedBy','updatedAt','history','updated'];
 const key=(m,id)=>m+'__'+id;
 let snap={}, cfgSnap='', saveTimer=null;
@@ -398,8 +434,9 @@ async function boot(){
     startApp();return;
   }
   $('#demoLogin').onclick=async()=>{me={name:'デモユーザー',email:'demo@'+DOMAIN,isAdmin:true,baseEditor:true};store=LocalStore;await store.init();startApp();};
-  $('#userBtn').onclick=e=>{e.stopPropagation();const o=$('#uMenu').classList.toggle('open');$('#userBtn').setAttribute('aria-expanded',o);};
-  document.addEventListener('click',e=>{if(!e.target.closest('.user'))$('#uMenu').classList.remove('open');if(!e.target.closest('.cmenu,.more'))document.querySelectorAll('.cmenu.open').forEach(x=>x.classList.remove('open'));});
+  $('#userBtn').onclick=e=>{e.stopPropagation();$('#bellMenu').classList.remove('open');const o=$('#uMenu').classList.toggle('open');$('#userBtn').setAttribute('aria-expanded',o);};
+  document.addEventListener('click',e=>{if(!e.target.closest('.bellwrap'))$('#bellMenu').classList.remove('open');if(!e.target.closest('.user'))$('#uMenu').classList.remove('open');if(!e.target.closest('.cmenu,.more'))document.querySelectorAll('.cmenu.open').forEach(x=>x.classList.remove('open'));});
+  $('#bellBtn').onclick=e=>{e.stopPropagation();$('#uMenu').classList.remove('open');$('#bellMenu').classList.toggle('open');};
   $('#settingsBtn').onclick=()=>guardLeave(()=>{ui.tab='settings';render();});
   $('#goHome').onclick=()=>{if(me)guardLeave(()=>{ui.tab='home';render();});};
   $('#logout').onclick=async()=>{await flush();if(auth)await auth.signOut();me=null;store=null;started=false;access={editors:[]};requests=[];myReq=null;showLogin();};
@@ -499,6 +536,7 @@ function printPages(list,title){const pr=$('#printRoot');pr.innerHTML=list.join(
 
 /* 画面 */
 function render(){
+  updateBell();
   if(!['home','log','edit'].concat(adminUI()?['settings']:[]).includes(ui.tab))ui.tab='home';
   $('#tabs').innerHTML='';
   ({home:viewHome,log:viewLog,edit:viewEdit,settings:viewSettings,all:viewAll,admin:viewAdmin,spec:viewSpec})[ui.tab]();
