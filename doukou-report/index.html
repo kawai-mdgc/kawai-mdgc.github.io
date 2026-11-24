@@ -164,6 +164,16 @@ body:not(.authed) .login{display:grid}
 .reqrow{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--line);font-size:13px}
 .reqrow:last-of-type{border-bottom:0}
 .viewonly{background:#f3f4f6;border:1px solid var(--line);border-radius:12px;padding:12px 16px;margin-bottom:14px;font-size:13px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.demobar{display:none;position:sticky;top:0;z-index:40;background:#111;color:#fff;font-size:12px;padding:8px 16px;gap:10px;align-items:center;flex-wrap:wrap}
+body.demo .demobar{display:flex}
+.demobar a{color:#fff;text-decoration:none;border:1px solid rgba(255,255,255,.4);border-radius:99px;padding:3px 12px;font-weight:600}
+.demobar a.on{background:#fff;color:#111}
+.umenu .vsw{display:none;border-bottom:1px solid var(--line);margin-bottom:6px;padding-bottom:6px}
+.umenu .vsw .vl{font-size:11px;color:var(--sub);padding:6px 18px 2px}
+.umenu .vsw button{color:#111;font-size:14px;padding:10px 18px}
+.umenu .vsw button:hover{background:#f3f4f6}
+.umenu .vsw button.on::before{content:"✓";margin-right:6px}
+.umenu .vsw button:not(.on)::before{content:"";display:inline-block;width:1em;margin-right:6px}
 .hist{font-size:12px;line-height:1.9;color:var(--sub)}
 .hist b{color:var(--ink)}
 </style>
@@ -177,6 +187,7 @@ body:not(.authed) .login{display:grid}
   <div class="err" id="loginErr"></div>
   <div class="demo" id="demoBox" style="display:none"><button class="btn sm" id="demoLogin">デモとして開く（このブラウザ内のみ保存）</button></div>
 </div></div>
+<div class="demobar" id="demoBar"></div>
 <div class="app">
   <header class="top">
     <div class="logo" id="goHome" style="cursor:pointer"><i><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></i><span>動向レポート作成ツール</span></div>
@@ -184,7 +195,7 @@ body:not(.authed) .login{display:grid}
     <div class="spacer"></div>
     <button class="gearbtn" id="settingsBtn">⚙ 設定<span class="badge" id="reqBadge"></span></button>
     <div class="user"><button class="userbtn" id="userBtn" aria-haspopup="true" aria-expanded="false"><div class="av" id="uAv"></div><b id="uName"></b></button>
-      <div class="umenu" id="uMenu"><button id="logout"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg><span>ログアウト</span></button></div></div>
+      <div class="umenu" id="uMenu"><div class="vsw" id="vsw"><div class="vl">見え方の確認（自分の権限は変わりません）</div><button data-va="admin">管理者</button><button data-va="manager">事業部長</button><button data-va="member">メンバー</button></div><button id="logout"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg><span>ログアウト</span></button></div></div>
   </header>
   <main id="main"></main>
 </div>
@@ -229,8 +240,17 @@ let me = null, store = null, auth = null, db = null, started = false;
 let access = {editors:[]}, requests = [], myReq = null;   // 追加で承認された編集者／権限の申請
 const sha=async t=>{const b=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(t));return [...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('');};
 /* 権限：管理者（設定・承認ができる）／編集者（編集・削除ができる）／それ以外は閲覧のみ */
-function recalcRole(){if(me)me.canEdit=!!(me.isAdmin||me.baseEditor||access.editors.includes((me.email||'').toLowerCase()));}
-function applyRoleUI(){if(!me)return;$('#settingsBtn').style.display=me.isAdmin?'inline-flex':'none';const n=requests.length,b=$('#reqBadge');b.textContent=n||'';b.style.display=n?'inline-grid':'none';}
+function recalcRole(){if(!me)return;me.realCanEdit=!!(me.isAdmin||me.baseEditor||access.editors.includes((me.email||'').toLowerCase()));me.canEdit=me.viewAs==='member'?false:me.realCanEdit;}
+const adminUI=()=>!!(me&&me.isAdmin&&(!me.viewAs||me.viewAs==='admin'));   // 「見え方の確認」で事業部長・メンバーを選んでいる間は、管理者の画面を出さない
+const VA_NAME={admin:'管理者',manager:'事業部長',member:'メンバー'};
+function setViewAs(v){
+  me.viewAs=v==='admin'?null:v;recalcRole();applyRoleUI();
+  document.querySelectorAll('#vsw [data-va]').forEach(b=>b.classList.toggle('on',b.dataset.va===(me.viewAs||'admin')));
+  if(!DEMO_ROLE){const on=!!me.viewAs;document.body.classList.toggle('demo',on);$('#demoBar').innerHTML=on?`<b>確認用の表示</b><span>「${VA_NAME[me.viewAs]}」の見え方で表示中です（自分の権限は変わりません）。</span><span style="flex:1"></span><a href="#" id="vaBack">管理者の見え方に戻す</a>`:'';if(on)$('#vaBack').onclick=e=>{e.preventDefault();setViewAs('admin');};}
+  if(ui.tab==='settings'&&!adminUI())ui.tab='home';
+  render();
+}
+function applyRoleUI(){if(!me)return;$('#settingsBtn').style.display=adminUI()?'inline-flex':'none';const n=requests.length,b=$('#reqBadge');b.textContent=n||'';b.style.display=n?'inline-grid':'none';}
 const META = ['createdBy','createdAt','updatedBy','updatedAt','history','updated'];
 const key=(m,id)=>m+'__'+id;
 let snap={}, cfgSnap='', saveTimer=null;
@@ -294,6 +314,23 @@ const LocalStore={
   async requestEdit(){},async approve(e){access.editors=[...new Set([...access.editors,e])];requests=requests.filter(x=>x.email!==e);},
   async reject(e){requests=requests.filter(x=>x.email!==e);},async revoke(e){access.editors=access.editors.filter(x=>x!==e);}
 };
+/* デモ表示（?demo=manager／?demo=member）：Firebaseにはつながず、架空のサンプルを表示する。保存はされない */
+const DEMO_ROLE=['manager','member'].includes(new URLSearchParams(location.search).get('demo'))?new URLSearchParams(location.search).get('demo'):null;
+function demoSample(){
+  const cur=curIssue(),pm=prevMonth(cur),pm2=prevMonth(pm),who={name:'サンプル 太郎',email:''},now=new Date().toISOString();
+  const sent='これは画面確認用の架空の文章です。実際の内容ではありません。';
+  const mk=st=>({status:st,layout:'auto',
+    updates:[{title:'管理画面にお知らせ機能を追加しました（サンプル）',body:sent+sent},{title:'',body:''},{title:'',body:''}],
+    plans:[{title:'新しい集客チャネルの追加を予定しています（サンプル）',body:sent},{title:'',body:''},{title:'',body:''}],
+    count:sent.repeat(4),ad:sent.repeat(4),advice:sent.repeat(2),message:sent.repeat(6),
+    createdBy:who,createdAt:now,updatedBy:who,updatedAt:now,updated:fmt(now),history:[{at:now,by:who,action:'create'}],note:''});
+  const o={};o[cur]={osouji:mk('submitted'),fuyouhin:mk('draft')};
+  o[pm]={osouji:mk('submitted'),fuyouhin:mk('submitted'),kaitori:mk('submitted')};o[pm2]={osouji:mk('submitted'),gaiheki:mk('submitted')};return o;
+}
+const DemoStore={
+  async init(){S.reports=demoSample();indexSnap();},
+  async setReport(){},async delReport(){},async setConfig(){},async requestEdit(){},async approve(){},async reject(){},async revoke(){}
+};
 const FireStore={
   async init(){
     const c=await db.collection('config').doc('main').get();
@@ -343,6 +380,8 @@ function showLogin(err){document.body.classList.remove('authed');$('#loginErr').
 function startApp(){
   document.body.classList.add('authed');
   recalcRole();applyRoleUI();started=true;
+  $('#vsw').style.display=me.isAdmin&&!DEMO_ROLE?'block':'none';
+  document.querySelectorAll('#vsw [data-va]').forEach(b=>{b.classList.toggle('on',b.dataset.va===(me.viewAs||'admin'));b.onclick=()=>{$('#uMenu').classList.remove('open');setViewAs(b.dataset.va);};});
   $('#uName').textContent=me.name;
   const nm=(me.name||'?').trim(),cjk=/[\u3040-\u30ff\u3400-\u9fff]/.test(nm);
   $('#uAv').innerHTML=me.photo?`<img src="${esc(me.photo)}" referrerpolicy="no-referrer" alt="">`:esc(cjk?nm.replace(/\s/g,'').slice(-2):nm.slice(0,1).toUpperCase());
@@ -350,6 +389,14 @@ function startApp(){
   init();
 }
 async function boot(){
+  if(DEMO_ROLE){
+    me={name:DEMO_ROLE==='manager'?'事業部長（デモ）':'メンバー（デモ）',email:'demo@'+DOMAIN,isAdmin:false,baseEditor:DEMO_ROLE==='manager',sim:null};
+    store=DemoStore;await store.init();document.body.classList.add('demo');
+    $('#demoBar').innerHTML=`<b>デモ表示</b><span>架空のサンプルです。入力しても保存されません。</span><span style="flex:1"></span><a href="?demo=manager" class="${DEMO_ROLE==='manager'?'on':''}">事業部長（編集・削除できる）</a><a href="?demo=member" class="${DEMO_ROLE==='member'?'on':''}">メンバー（閲覧のみ）</a>`;
+    $('#logout').onclick=()=>{location.href=location.pathname;};
+    $('#goHome').onclick=()=>guardLeave(()=>{ui.tab='home';render();});
+    startApp();return;
+  }
   $('#demoLogin').onclick=async()=>{me={name:'デモユーザー',email:'demo@'+DOMAIN,isAdmin:true,baseEditor:true};store=LocalStore;await store.init();startApp();};
   $('#userBtn').onclick=e=>{e.stopPropagation();const o=$('#uMenu').classList.toggle('open');$('#userBtn').setAttribute('aria-expanded',o);};
   document.addEventListener('click',e=>{if(!e.target.closest('.user'))$('#uMenu').classList.remove('open');if(!e.target.closest('.cmenu,.more'))document.querySelectorAll('.cmenu.open').forEach(x=>x.classList.remove('open'));});
@@ -452,7 +499,7 @@ function printPages(list,title){const pr=$('#printRoot');pr.innerHTML=list.join(
 
 /* 画面 */
 function render(){
-  if(!['home','log','edit'].concat(me&&me.isAdmin?['settings']:[]).includes(ui.tab))ui.tab='home';
+  if(!['home','log','edit'].concat(adminUI()?['settings']:[]).includes(ui.tab))ui.tab='home';
   $('#tabs').innerHTML='';
   ({home:viewHome,log:viewLog,edit:viewEdit,settings:viewSettings,all:viewAll,admin:viewAdmin,spec:viewSpec})[ui.tab]();
 }
@@ -482,7 +529,7 @@ function viewHome(){
    ${ents.length?`<div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(236px,1fr))">${ents.map(card).join('')}</div>`:'<div class="card" style="text-align:center;padding:48px"><p class="note">現在号のレポートはまだありません。「＋ 新規作成」から始めましょう。</p></div>'}</div>`;
   $('#endSim')&&($('#endSim').onclick=()=>{me.sim=null;render();toast('テスト表示を終了しました');});
   $('#new')&&($('#new').onclick=()=>newDialog());
-  $('#reqEdit')&&($('#reqEdit').onclick=async()=>{try{await store.requestEdit();myReq={email:me.email,name:me.name,at:new Date().toISOString()};toast('権限を申請しました。管理者の承認をお待ちください');render();}catch(e){toast('申請に失敗しました：'+(e.message||e));}});
+  $('#reqEdit')&&($('#reqEdit').onclick=async()=>{if(me.viewAs==='member'){toast('確認用の表示です。実際の申請は送られません');return;}try{await store.requestEdit();myReq={email:me.email,name:me.name,at:new Date().toISOString()};toast('権限を申請しました。管理者の承認をお待ちください');render();}catch(e){toast('申請に失敗しました：'+(e.message||e));}});
   $('#goLog').onclick=()=>{logPath={y:null,s:null};ui.tab='log';render();};
   document.querySelectorAll('[data-mk]').forEach(b=>b.onclick=()=>{const id=b.dataset.mk;if((S.reports[cur]||{})[id])openReport(cur,id);else newDialog(id);});
   document.querySelectorAll('.hc[data-open]').forEach(c=>c.onclick=e=>{if(e.target.closest('.more,.cmenu'))return;const [m,id]=c.dataset.open.split('|');openReport(m,id);});
