@@ -221,7 +221,18 @@ async function flush(){
   Object.keys(snap).forEach(k=>{if(!seen.has(k)){const [m,id]=k.split('__');delete snap[k];jobs.push(store.delReport(m,id));}});
   const c=JSON.stringify([S.deadlineDay,S.services]);if(c!==cfgSnap){cfgSnap=c;jobs.push(store.setConfig());}
   try{await Promise.all(jobs);}catch(e){toast('保存に失敗しました：'+(e.message||e));}
-  if(!jobs.length)return; if(ui.tab==='edit')render();
+  if(!jobs.length)return; patchEditInfo();
+}
+/* 入力画面の「作成・編集の情報」と履歴だけを差し替える（フォームは再描画しない＝スクロールや入力中の文字が飛ばない） */
+const HIST_SHOW=['create','edit','import','submit','withdraw'];
+function metaHtml(m,svc,r){const st=effStatus(m,svc.id);
+  return `${mLabel(m)} ／ 担当：${esc(svc.owner)} ／ <span class="pill ${STATUS[st][1]}">${STATUS[st][0]}</span>${r.createdBy?`<br>作成：${esc(r.createdBy.name)}（${fmt(r.createdAt)}）　最終編集：${esc((r.updatedBy||r.createdBy).name)}（${fmt(r.updatedAt||r.createdAt)}）`:''}`;}
+function histHtml(r){const l=(r.history||[]).filter(h=>HIST_SHOW.includes(h.action));
+  return l.length?[...l].reverse().slice(0,12).map(h=>`${fmt(h.at)}　<b>${esc(h.by.name)}</b>　${ACT[h.action]||h.action}`).join('<br>'):'まだ履歴がありません（最初の入力から記録されます）';}
+function patchEditInfo(){
+  if(ui.tab!=='edit')return;const svc=S.services.find(x=>x.id===ui.svc);if(!svc)return;
+  const r=peek(ui.month,svc.id),mt=document.querySelector('.form .meta'),h=document.querySelector('.form .hist');
+  if(mt)mt.innerHTML=metaHtml(ui.month,svc,r);if(h)h.innerHTML=histHtml(r);
 }
 window.addEventListener('beforeunload',()=>{if(saveTimer)flush();});
 const isTyping=()=>document.activeElement&&['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName);
@@ -327,7 +338,7 @@ function validate(r){
   return e;
 }
 function effStatus(m,id){const r=(S.reports[m]||{})[id];if(!r)return 'empty';
-  if(r.status==='draft'&&!r.count&&!r.ad&&!r.message&&!r.updates.some(x=>x.title))return 'empty';return r.status;}
+  if(r.status==='draft'&&!r.count&&!r.ad&&!r.advice&&!r.message&&!r.updates.some(x=>x.title||x.body)&&!r.plans.some(x=>x.title||x.body))return 'empty';return r.status;}
 const isSide=r=>r.layout==='side';   // 標準は縦並び。横並びは手動指定のみ
 
 /* ページ描画（レイアウトはすべて自動。デザイナーの微調整相当の処理） */
@@ -460,7 +471,7 @@ function viewEdit(){
   <div class="form">
     <button class="btn sm" id="back" style="margin-bottom:14px">← ${ui.back==='log'?'ログに戻る':'ホームに戻る'}</button>
     <h2>${esc(svc.name)} <small style="font-size:13px;color:var(--sub);font-weight:600">${mLabel(m)}</small></h2>
-    <div class="meta">${mLabel(m)} ／ 担当：${esc(svc.owner)} ／ <span class="pill ${STATUS[st][1]}">${STATUS[st][0]}</span>${r.createdBy?`<br>作成：${esc(r.createdBy.name)}（${fmt(r.createdAt)}）　最終編集：${esc((r.updatedBy||r.createdBy).name)}（${fmt(r.updatedAt||r.createdAt)}）`:''}</div>
+    <div class="meta">${metaHtml(m,svc,r)}</div>
     ${r.note?`<div class="errs">差し戻しコメント：${esc(r.note)}</div>`:''}
     <div id="errs"></div>
     <div class="${locked?'locked':''}" id="fields">
@@ -478,7 +489,7 @@ function viewEdit(){
       <span class="spacer"></span>
       ${r.status==='submitted'||r.status==='approved'?'<button class="btn" id="withdraw">提出を取り下げる</button>':'<button class="btn pri" id="submitBtn">提出</button>'}
     </div>
-    <div class="card" style="margin-top:18px"><h3>作成・編集履歴</h3><div class="hist">${(r.history||[]).some(h=>['create','edit','import','submit','withdraw'].includes(h.action))?[...r.history].filter(h=>['create','edit','import','submit','withdraw'].includes(h.action)).reverse().slice(0,12).map(h=>`${fmt(h.at)}　<b>${esc(h.by.name)}</b>　${ACT[h.action]||h.action}`).join('<br>'):'まだ履歴がありません（最初の入力から記録されます）'}</div></div>
+    <div class="card" style="margin-top:18px"><h3>作成・編集履歴</h3><div class="hist">${histHtml(r)}</div></div>
     <p class="note" style="margin-top:10px">入力内容は自動で保存されます。入力が終わったら「提出」を押してください。誰がいつ編集したかが記録されます。</p>
   </div>
   <div class="previewCol"><div class="lay" id="lay"></div><div id="pv"></div><button class="btn sm" id="pdf1">このサービスのPDFを保存</button></div>`;
