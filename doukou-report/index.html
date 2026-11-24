@@ -152,6 +152,8 @@ body:not(.authed) .login{display:grid}
 .more:hover{background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.15)}
 .cmenu{display:none;position:absolute;top:46px;right:8px;background:#fff;border-radius:12px;box-shadow:0 6px 20px rgba(0,0,0,.18);padding:6px;z-index:5;min-width:120px}
 .cmenu.open{display:block}
+.cmenu button.neutral{color:#111}
+.cmenu button.neutral:hover{background:#f3f4f6}
 .cmenu button{display:block;width:100%;text-align:left;border:0;background:none;color:#c8223a;font-weight:700;font-size:14px;padding:10px 14px;border-radius:8px;cursor:pointer}
 .cmenu button:hover{background:#fdf2f3}
 .hist{font-size:12px;line-height:1.9;color:var(--sub)}
@@ -470,8 +472,8 @@ function viewLog(){
   } else {
     const items=past.filter(p=>p.y===logPath.y&&p.s.id===logPath.s);
     body=`<div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(236px,1fr))">${items.map(({m,s})=>{const st=effStatus(m,s.id),r=peek(m,s.id);
-      return `<div class="gcell"><div class="cap"><b>${mLabel(m)}</b><span class="pill ${STATUS[st][1]}">${STATUS[st][0]}</span></div>${scaled(pageHtml(s,r,m),200)}
-      <div class="cap"><button class="btn sm pri" data-lo="${m}|${s.id}">開く</button><button class="btn sm" data-lp="${m}|${s.id}">PDF</button><button class="btn sm" data-ld="${m}|${s.id}">複製</button></div></div>`;}).join('')}</div>`;
+      return `<div class="gcell hc" data-open="${m}|${s.id}"><button class="more" data-more="${m}|${s.id}" aria-label="メニュー">･･･</button><div class="cmenu" data-menu="${m}|${s.id}"><button class="neutral" data-lp="${m}|${s.id}">PDF</button></div><div class="cap"><b>${esc(s.name)}</b><span>${mShort(m)}</span></div>${scaled(pageHtml(s,r,m),200)}
+      <div><span class="pill ${STATUS[st][1]}">${STATUS[st][0]}</span> <span class="note">${r.updatedBy?esc(r.updatedBy.name)+' '+fmt(r.updatedAt):''}</span></div></div>`;}).join('')}</div>`;
   }
   $('#main').innerHTML=`<div class="pane"><button class="btn sm" id="logHome" style="margin-bottom:14px">← ホームに戻る</button><h2>ログ</h2>${crumbs}${body}</div>`;
   $('#logHome').onclick=()=>{ui.tab='home';render();};
@@ -479,9 +481,9 @@ function viewLog(){
   document.querySelectorAll('[data-lg]').forEach(b=>b.onclick=()=>{if(b.dataset.lg==='root')logPath={y:null,s:null};else logPath.y=null;render();});
   document.querySelectorAll('[data-ls]').forEach(b=>b.onclick=()=>{logPath={s:b.dataset.ls,y:null};render();});
   document.querySelectorAll('[data-ly]').forEach(b=>b.onclick=()=>{logPath.y=b.dataset.ly;render();});
-  document.querySelectorAll('[data-lo]').forEach(b=>b.onclick=()=>{const [m,id]=b.dataset.lo.split('|');openReport(m,id,'log');});
-  document.querySelectorAll('[data-lp]').forEach(b=>b.onclick=()=>{const [m,id]=b.dataset.lp.split('|');const sv=S.services.find(x=>x.id===id);printPages([pageHtml(sv,peek(m,id),m)],`動向レポート_${sv.name}_${m}`);});
-  document.querySelectorAll('[data-ld]').forEach(b=>b.onclick=()=>{const [m,id]=b.dataset.ld.split('|');newDialog(id,m);});
+  document.querySelectorAll('.hc[data-open]').forEach(c=>c.onclick=e=>{if(e.target.closest('.more,.cmenu'))return;const [m,id]=c.dataset.open.split('|');openReport(m,id,'log');});
+  document.querySelectorAll('[data-more]').forEach(b=>b.onclick=e=>{e.stopPropagation();const menu=document.querySelector(`[data-menu="${b.dataset.more}"]`),was=menu.classList.contains('open');document.querySelectorAll('.cmenu.open').forEach(x=>x.classList.remove('open'));if(!was)menu.classList.add('open');});
+  document.querySelectorAll('[data-lp]').forEach(b=>b.onclick=e=>{e.stopPropagation();const [m,id]=b.dataset.lp.split('|');const sv=S.services.find(x=>x.id===id);printPages([pageHtml(sv,peek(m,id),m)],`動向レポート_${sv.name}_${m}`);});
 }
 function openReport(m,id,from){ui.back=from||'home';ui.month=m;ui.svc=id;ui.tab='edit';refreshMonths();render();}
 function newDialog(preSvc,copyFrom){
