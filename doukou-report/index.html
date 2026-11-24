@@ -268,12 +268,25 @@ let S = {deadlineDay:12, services:structuredClone(DEFAULT.services), reports:{}}
 let ui = {tab:'home', svc:null, month:null, role:'sales', back:null};
 let me = null, store = null, auth = null, db = null, started = false;
 let access = {editors:[],decisions:{}}, requests = [], myReq = null;
+let editReqs = [], logGrants = {};   // ログの修正の許可の申請／許可（Firestore の editRequests・logGrants）
 let drive = {};   // Driveへの格納と、共有設定（リンクを知っている全員）の確認の記録。Firestore の driveChecks（月__事業部）   // 追加で承認された編集者／承認・却下の結果／権限の申請
 const ek=e=>String(e||'').toLowerCase().replace(/[.#$\[\]\/]/g,c=>'%'+c.charCodeAt(0).toString(16));   // メールアドレスを、Firestoreの項目名に使える形にする
 const decide=(email,result)=>({...(access.decisions||{}),[ek(email)]:{result,by:me.name,at:new Date().toISOString()}});
 const sha=async t=>{const b=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(t));return [...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('');};
 /* 権限：管理者（設定・承認ができる）／編集者（編集・削除ができる）／それ以外は閲覧のみ */
-function recalcRole(){if(!me)return;me.realCanEdit=!!(me.isAdmin||me.baseEditor||access.editors.includes((me.email||'').toLowerCase()));me.canEdit=me.viewAs==='member'?false:me.realCanEdit;}
+function recalcRole(){if(!me)return;
+  if(me.fixedHeads)me.heads=me.fixedHeads;   // デモ表示用
+  else{const em=(me.email||'').toLowerCase();me.heads=S.services.filter(s=>s.headEmail?String(s.headEmail).toLowerCase()===em:(me.hashHeads||[]).includes(s.id)).map(s=>s.id);}   // 事業部長：設定画面の入力を優先し、空欄の事業は設定ファイルの初期値
+  me.driveCheck=!!(me.driveCheckBase||me.heads.length);
+  me.realCanEdit=!!(me.isAdmin||me.baseEditor||me.heads.length||access.editors.includes((me.email||'').toLowerCase()));me.canEdit=me.viewAs==='member'?false:me.realCanEdit;}
+/* 編集できるか：メンバーは閲覧のみ／提出済み（現在号）は「提出を取り下げる」まで触れない／ログ（過去号）は、管理者とその事業の事業部長と、許可をもらった人だけ */
+const isHead=id=>!!(me&&((!me.viewAs&&me.isAdmin)||(me.heads||[]).includes(id)));
+const grantFor=(m,id)=>{const u=((logGrants[key(m,id)]||{}).grants||{})[ek(me&&me.email)];return !!(u&&u.until>Date.now());};
+function editLevel(m,id){
+  if(!me||!me.canEdit)return 'member';
+  if(isPast(m))return isHead(id)||grantFor(m,id)?'yes':'log';
+  const st=effStatus(m,id);return st==='submitted'||st==='approved'?'submitted':'yes';
+}
 const adminUI=()=>!!(me&&me.isAdmin&&(!me.viewAs||me.viewAs==='admin'));   // 「見え方の確認」で事業部長・メンバーを選んでいる間は、管理者の画面を出さない
 /* 通知：管理者には権限の申請、編集できる人には「提出期限の前日・当日・超過」の提出のお願いを出す */
 const startOfDay=d=>new Date(d.getFullYear(),d.getMonth(),d.getDate());
@@ -286,6 +299,8 @@ function buildNotifs(){
     const nm=`${sv.name} ${mShort(x.month)}`;
     if(x.result==='ok')out.push({list:true,kind:'done',diff:-99,mark:'☑',done:true,title:`${nm}：共有設定OK`,text:'Driveに格納され、「リンクを知っている全員」になっています。',go:{drive:k}});
     else out.push({list:true,kind:'warn',diff:-99,mark:'⚠',title:`${nm}：共有設定が必要です`,text:'Driveに格納されましたが、「リンクを知っている全員」になっていません。直すと、自動で消えます。',go:{drive:k}});});
+  editReqs.slice().sort((a,b)=>String(a.at)<String(b.at)?-1:1).forEach(x=>{if(!isHead(x.service))return;const sv=S.services.find(v=>v.id===x.service);if(sv)out.push({kind:'info',title:'ログの修正の許可の申請',text:`${x.name}さんが「${sv.name}」${mShort(x.month)}の修正の許可を申請しています。押すと内容を確認できます。`,go:{lreq:x.id}});});
+  Object.keys(logGrants).forEach(k=>{const g=logGrants[k],u=((g&&g.grants)||{})[ek(me.email)],sv=g&&S.services.find(v=>v.id===g.service);if(u&&u.until>Date.now()&&sv)out.push({kind:'info',title:'ログの修正が許可されました',text:`「${sv.name}」${mShort(g.month)}を、あと${Math.max(1,Math.ceil((u.until-Date.now())/3600000))}時間ほど修正できます。`,go:null});});
   const dec=(access.decisions||{})[ek(me.email)];
   if(dec&&!readDecisions().includes(dec.at))out.push({kind:'info',title:dec.result==='approved'?'編集権限が承認されました':'編集権限の申請が却下されました',text:dec.result==='approved'?`${dec.by}さんが承認しました。押すと内容を確認できます。`:`${dec.by}さんが対応しました。押すと内容を確認できます。`,go:{decision:dec}});
   if(me.canEdit){
@@ -308,7 +323,7 @@ function updateBell(){
   const show=notifs.map((x,i)=>({x,i})).filter(o=>!!o.x.list===(bellTab==='c'));
   $('#bellMenu').innerHTML=(hasList?`<div class="btabs">${tab('n','通知')}${tab('c','チェックリスト')}</div>`:`<div class="nhead">通知</div>`)+(show.length?show.map(({x,i})=>`<button class="nitem ${x.kind}" data-n="${i}"><b>${x.mark?esc(x.mark)+' ':''}${esc(x.title)}</b>${esc(x.text)}</button>`).join(''):`<div class="nempty">${bellTab==='c'?'チェックする項目はありません。':'新しい通知はありません。'}</div>`);
   document.querySelectorAll('#bellMenu [data-bt]').forEach(t=>t.onclick=e=>{e.stopPropagation();bellTab=t.dataset.bt;updateBell();});
-  document.querySelectorAll('#bellMenu [data-n]').forEach(btn=>btn.onclick=()=>{const g=notifs[+btn.dataset.n].go;$('#bellMenu').classList.remove('open');if(!g)return;if(g.notice){const n=notices.find(x=>x.id===g.notice);if(n&&confirm(`${n.issue||''}\n18時の時点で、まだ完了していない事業があります。\n\n${(n.lines||[]).join('\n')}\n\n確認済みにしますか？（ベルから消えます）`))store.resolveNotice(n.id).then(()=>{toast('確認済みにしました');updateBell();}).catch(e=>toast('失敗しました：'+(e.message||e)));return;}if(g.drive){showDrive(g.drive);return;}if(g.req){showRequest(g.req);return;}if(g.decision){showDecision(g.decision);return;}guardLeave(()=>{if(g.open)openReport(g.open[0],g.open[1],'home');else{ui.tab=g.tab;render();}});});
+  document.querySelectorAll('#bellMenu [data-n]').forEach(btn=>btn.onclick=()=>{const g=notifs[+btn.dataset.n].go;$('#bellMenu').classList.remove('open');if(!g)return;if(g.notice){const n=notices.find(x=>x.id===g.notice);if(n&&confirm(`${n.issue||''}\n18時の時点で、まだ完了していない事業があります。\n\n${(n.lines||[]).join('\n')}\n\n確認済みにしますか？（ベルから消えます）`))store.resolveNotice(n.id).then(()=>{toast('確認済みにしました');updateBell();}).catch(e=>toast('失敗しました：'+(e.message||e)));return;}if(g.lreq){showLogReq(g.lreq);return;}if(g.drive){showDrive(g.drive);return;}if(g.req){showRequest(g.req);return;}if(g.decision){showDecision(g.decision);return;}guardLeave(()=>{if(g.open)openReport(g.open[0],g.open[1],'home');else{ui.tab=g.tab;render();}});});
 }
 /* 承認・却下の結果の通知：確認したら既読にする（このブラウザに記録） */
 const readKey=()=>'doukou-read-'+ek(me&&me.email);
@@ -346,6 +361,20 @@ function driveChip(m,id){
   if(!driveOn()||!inScope(id))return '';const x=drive[key(m,id)];if(!x||x.result==='ok')return '';   // 共有OKのときは、カードに何も出さない
   const [t,c]=['Drive：共有設定が必要','var(--ng)'];
   return `<div style="margin-top:6px;padding-right:70px"><span class="note" style="color:${c};font-weight:700">● ${t}</span></div>`;
+}
+function showLogReq(id){
+  const x=editReqs.find(r=>r.id===id);if(!x){toast('この申請はすでに処理されています');return;}
+  const sv=S.services.find(v=>v.id===x.service);if(!sv)return;
+  const d=document.createElement('div');d.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);display:grid;place-items:center;z-index:30;padding:20px';
+  d.innerHTML=`<div class="card" style="width:min(460px,92vw);margin:0;padding:24px 22px"><h3 style="font-size:16px;margin-bottom:14px">ログの修正の許可</h3>
+   <div style="display:grid;grid-template-columns:96px 1fr;gap:8px 10px;font-size:14px;margin-bottom:14px"><span class="note">申請した人</span><b>${esc(x.name)}</b><span class="note">メール</span><span>${esc(x.email)}</span><span class="note">事業部</span><span>${esc(sv.name)}</span><span class="note">号</span><span>${mLabel(x.month)}</span><span class="note">申請日時</span><span>${fmt(x.at)}</span></div>
+   <p class="note" style="margin:0 0 18px">承認すると、この人は、このレポートを24時間だけ修正できます。</p>
+   <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap"><button class="btn" id="lqClose">閉じる</button><button class="btn" id="lqNo">却下</button><button class="btn ok" id="lqYes">承認する（24時間）</button></div></div>`;
+  document.body.appendChild(d);
+  const done=async(fn,msg)=>{d.remove();try{await fn();toast(msg);updateBell();}catch(e){toast('失敗しました：'+(e.message||e));}};
+  d.querySelector('#lqClose').onclick=()=>d.remove();
+  d.querySelector('#lqYes').onclick=()=>done(()=>store.approveLogEdit(x),`${x.name}さんに、24時間の修正を許可しました`);
+  d.querySelector('#lqNo').onclick=()=>done(()=>store.rejectLogEdit(x),'却下しました');
 }
 function showDrive(k){
   const x=drive[k];if(!x){toast('この項目はすでに消えています');return;}
@@ -430,7 +459,7 @@ function renderKeep(focusKey){
 /* 入力画面の「作成・編集の情報」と履歴だけを差し替える（フォームは再描画しない＝スクロールや入力中の文字が飛ばない） */
 const HIST_SHOW=['create','edit','import','submit','withdraw'];
 function metaHtml(m,svc,r){const st=effStatus(m,svc.id);
-  return `${mLabel(m)} ／ 担当：${esc(svc.owner)} ／ <span class="pill ${STATUS[st][1]}">${STATUS[st][0]}</span>${r.createdBy?`<br>作成：${esc(r.createdBy.name)}（${fmt(r.createdAt)}）　最終編集：${esc((r.updatedBy||r.createdBy).name)}（${fmt(r.updatedAt||r.createdAt)}）`:''}`;}
+  return `${mLabel(m)} ／ 担当：${esc(svc.headName||svc.owner)} ／ <span class="pill ${STATUS[st][1]}">${STATUS[st][0]}</span>${r.createdBy?`<br>作成：${esc(r.createdBy.name)}（${fmt(r.createdAt)}）　最終編集：${esc((r.updatedBy||r.createdBy).name)}（${fmt(r.updatedAt||r.createdAt)}）`:''}`;}
 function histHtml(r){const l=(r.history||[]).filter(h=>HIST_SHOW.includes(h.action));
   return l.length?[...l].reverse().slice(0,12).map(h=>`${fmt(h.at)}　<b>${esc(h.by.name)}</b>　${ACT[h.action]||h.action}`).join('<br>'):'まだ履歴がありません（最初の入力から記録されます）';}
 function patchEditInfo(){
@@ -447,6 +476,9 @@ const LocalStore={
   async init(){try{const j=JSON.parse(localStorage.getItem('doukou-demo-v1'));if(j)S=j;}catch(e){}indexSnap();},
   _w(){try{localStorage.setItem('doukou-demo-v1',JSON.stringify(S));}catch(e){}},
   async setReport(){this._w();},async delReport(){this._w();},async setConfig(){this._w();},async resolveNotice(id){notices=notices.map(n=>n.id===id?{...n,resolved:true}:n);},
+  async requestLogEdit(m,id){editReqs=[...editReqs.filter(r=>r.id!==key(m,id)+'__'+me.email),{id:key(m,id)+'__'+me.email,month:m,service:id,email:me.email,name:me.name,at:new Date().toISOString()}];},
+  async approveLogEdit(x){const k=key(x.month,x.service),cur=logGrants[k]||{month:x.month,service:x.service,grants:{}};logGrants[k]={...cur,grants:{...cur.grants,[ek(x.email)]:{email:x.email,name:x.name,by:me.name,until:Date.now()+864e5}}};editReqs=editReqs.filter(r=>r.id!==x.id);},
+  async rejectLogEdit(x){editReqs=editReqs.filter(r=>r.id!==x.id);},
   async requestEdit(){},async approve(e){access.editors=[...new Set([...access.editors,e.toLowerCase()])];access.decisions=decide(e,'approved');requests=requests.filter(x=>x.email!==e);},
   async reject(e){access.decisions=decide(e,'rejected');requests=requests.filter(x=>x.email!==e);},async revoke(e){access.editors=access.editors.filter(x=>x!==e);}
 };
@@ -466,12 +498,14 @@ function demoSample(){
 const DemoStore={
   async init(){S.reports=demoSample();indexSnap();},
   async setReport(){},async delReport(){},async setConfig(){},async requestEdit(){},
+  async requestLogEdit(m,id){return LocalStore.requestLogEdit(m,id);},async approveLogEdit(x){return LocalStore.approveLogEdit(x);},async rejectLogEdit(x){return LocalStore.rejectLogEdit(x);},
   async approve(e){return LocalStore.approve(e);},async reject(e){return LocalStore.reject(e);},async revoke(e){return LocalStore.revoke(e);}   // デモでも、承認・却下の動きは画面上で試せる（保存はされない）
 };
 const FireStore={
   async init(){
     const c=await db.collection('config').doc('main').get();
     if(c.exists){const d=c.data();S.deadlineDay=d.deadlineDay||12;if(d.services&&d.services.length)S.services=d.services;}
+    recalcRole();
     await new Promise((res,rej)=>{let first=true;
       db.collection('reports').onSnapshot(sn=>{
         sn.docChanges().forEach(ch=>{const d=ch.doc.data(),m=d.month,id=d.service,k=key(m,id);
@@ -490,6 +524,8 @@ const FireStore={
         if(f){f=false;res();}else if(started&&was!==me.canEdit){toast(me.canEdit?'編集権限が付与されました':'編集権限が外れました');render();}
       },()=>{if(f){f=false;res();}});});
     let presFirst=true;
+    db.collection('logGrants').onSnapshot(sn=>{logGrants={};sn.docs.forEach(d=>{logGrants[d.id]=d.data();});updateBell();if(started&&['home','edit'].includes(ui.tab)&&!isTyping())render();},()=>{});
+    db.collection('editRequests').onSnapshot(sn=>{editReqs=sn.docs.map(d=>({...d.data(),id:d.id}));updateBell();if(started&&ui.tab==='edit'&&!isTyping())render();},()=>{});
     db.collection('presence').onSnapshot(sn=>{presence=sn.docs.map(d=>d.data());paintPresence();
       if(presFirst){presFirst=false;sn.docs.forEach(d=>{const v=d.data();if(String(v.email).toLowerCase()===me.email.toLowerCase()&&Date.now()-v.ts>600000)d.ref.delete().catch(()=>{});});}},()=>{});   // 自分の古い印（閉じ忘れ）は、起動時に片づける
     if(me.driveCheck)db.collection('driveChecks').onSnapshot(sn=>{drive={};sn.docs.forEach(d=>{const v=d.data();drive[key(v.month,v.service)]=v;});updateBell();if(started&&(ui.tab==='home'||ui.tab==='log')&&!isTyping())render();},()=>{});
@@ -497,6 +533,11 @@ const FireStore={
     if(me.isAdmin)db.collection('requests').onSnapshot(sn=>{requests=sn.docs.map(d=>d.data());applyRoleUI();if(started&&ui.tab==='settings'&&!isTyping())render();},()=>{});
     else db.collection('requests').doc(me.email).onSnapshot(d=>{myReq=d.exists?d.data():null;if(started&&ui.tab==='home'&&!isTyping())render();},()=>{});
   },
+  requestLogEdit(m,id){const rid=key(m,id)+'__'+me.email.toLowerCase();return db.collection('editRequests').doc(rid).set({id:rid,month:m,service:id,email:me.email.toLowerCase(),name:me.name,at:new Date().toISOString()});},
+  async approveLogEdit(x){const k=key(x.month,x.service),cur=logGrants[k]||{grants:{}};
+    await db.collection('logGrants').doc(k).set({month:x.month,service:x.service,grants:{...(cur.grants||{}),[ek(x.email)]:{email:x.email,name:x.name,by:me.name,until:Date.now()+864e5}}});
+    await db.collection('editRequests').doc(x.id).delete();},
+  rejectLogEdit(x){return db.collection('editRequests').doc(x.id).delete();},
   resolveNotice(id){return db.collection('adminNotices').doc(id).update({resolved:true,resolvedBy:me.email,resolvedAt:new Date().toISOString()});},
   requestEdit(){return db.collection('requests').doc(me.email).set({email:me.email,name:me.name,at:new Date().toISOString()});},
   async approve(email){await db.collection('access').doc('main').set({editors:[...new Set([...access.editors,email.toLowerCase()])],decisions:decide(email,'approved')});await db.collection('requests').doc(email).delete();},
@@ -504,7 +545,8 @@ const FireStore={
   revoke(email){return db.collection('access').doc('main').set({editors:access.editors.filter(x=>x!==email),decisions:access.decisions||{}});},
   setReport(m,id,r){return db.collection('reports').doc(key(m,id)).set({month:m,service:id,report:clone(r)});},
   delReport(m,id){return db.collection('reports').doc(key(m,id)).delete();},
-  setConfig(){return db.collection('config').doc('main').set({deadlineDay:S.deadlineDay,services:clone(S.services)});}
+  setConfig(){const heads={},em=[];S.services.forEach(s=>{const e=String(s.headEmail||'').trim().toLowerCase();if(e){heads[s.id]=e;em.push(e);}});
+    return db.collection('config').doc('main').set({deadlineDay:S.deadlineDay,services:clone(S.services),heads,headEmails:[...new Set(em)]});}   // heads／headEmails は、Firestoreのルールが事業部長を見分けるのに使う
 };
 /* 初期データ（過去号）の取り込み：管理者のみ */
 async function importSeed(obj){
@@ -542,11 +584,12 @@ async function boot(){
   $('#bellBtn').onclick=e=>{e.stopPropagation();$('#uMenu').classList.remove('open');$('#bellMenu').classList.toggle('open');};
   $('#settingsBtn').onclick=()=>guardLeave(()=>{ui.tab='settings';render();});
   $('#goHome').onclick=()=>{if(me)guardLeave(()=>{ui.tab='home';render();});};
-  $('#logout').onclick=async()=>{await flush();await beat(true);presence=[];if(auth)await auth.signOut();me=null;store=null;started=false;access={editors:[],decisions:{}};requests=[];myReq=null;drive={};showLogin();};
+  $('#logout').onclick=async()=>{await flush();await beat(true);presence=[];if(auth)await auth.signOut();me=null;store=null;started=false;access={editors:[],decisions:{}};requests=[];myReq=null;drive={};editReqs=[];logGrants={};showLogin();};
   if(DEMO_ROLE){
-    me={name:{admin:'管理者（デモ）',manager:'事業部長（デモ）',member:'メンバー（デモ）'}[DEMO_ROLE],email:'demo@'+DOMAIN,isAdmin:DEMO_ROLE==='admin',baseEditor:DEMO_ROLE!=='member',driveCheck:DEMO_ROLE!=='member',heads:DEMO_ROLE==='manager'?['osouji']:[],sim:null};
+    me={name:{admin:'管理者（デモ）',manager:'事業部長（デモ）',member:'メンバー（デモ）'}[DEMO_ROLE],email:'demo@'+DOMAIN,isAdmin:DEMO_ROLE==='admin',baseEditor:DEMO_ROLE!=='member',driveCheckBase:DEMO_ROLE!=='member',fixedHeads:DEMO_ROLE==='manager'?['osouji']:[],sim:null};
     if(DEMO_ROLE==='admin'){const t=Date.now();requests=[{email:'sample1@madoguchi.inc',name:'サンプル 一郎',at:new Date(t-3600e3).toISOString()},{email:'sample2@madoguchi.inc',name:'サンプル 二郎',at:new Date(t-600e3).toISOString()}];}
     store=DemoStore;await store.init();document.body.classList.add('demo');
+    if(DEMO_ROLE!=='member'){const c=curIssue();editReqs=[{id:'demo1',month:prevMonth(c),service:'osouji',email:'sample3@'+DOMAIN,name:'サンプル 花子',at:new Date(Date.now()-900e3).toISOString()}];}
     {const c=curIssue(),far=Date.now()+864e5,pe=(n,id)=>({name:n,photo:'',month:c,svc:id,ts:far});presence=[pe('サンプル 花子','osouji'),pe('サンプル 次郎','osouji'),pe('サンプル 三郎','fuyouhin')];}
     if(DEMO_ROLE!=='member'){const c=curIssue(),t=Date.now(),mk=(id,nm,ok,ago)=>({month:c,service:id,fileName:`${nm}_${c.replace('-','')}.pdf`,fileUrl:'',storedAt:new Date(t-ago).toISOString(),storedBy:{name:'サンプル 太郎',email:''},result:ok?'ok':'ng',shared:ok,auto:true});drive[key(c,'osouji')]=mk('osouji','おそうじ合衆国',false,1800e3);drive[key(c,'fuyouhin')]=mk('fuyouhin','不用品回収の窓口',true,7200e3);}
     $('#demoBar').innerHTML=`<b>デモ表示</b><span>架空のサンプルです。入力しても保存されません。</span><span style="flex:1"></span><a href="?demo=admin" class="${DEMO_ROLE==='admin'?'on':''}">管理者（設定・承認ができる）</a><a href="?demo=manager" class="${DEMO_ROLE==='manager'?'on':''}">事業部長（編集・削除できる）</a><a href="?demo=member" class="${DEMO_ROLE==='member'?'on':''}">メンバー（閲覧のみ）</a>`;
@@ -554,7 +597,7 @@ async function boot(){
     $('#goHome').onclick=()=>guardLeave(()=>{ui.tab='home';render();});
     startApp();return;
   }
-  $('#demoLogin').onclick=async()=>{me={name:'デモユーザー',email:'demo@'+DOMAIN,isAdmin:true,baseEditor:true,driveCheck:true,heads:[]};store=LocalStore;await store.init();startApp();};
+  $('#demoLogin').onclick=async()=>{me={name:'デモユーザー',email:'demo@'+DOMAIN,isAdmin:true,baseEditor:true,driveCheckBase:true,fixedHeads:[]};store=LocalStore;await store.init();startApp();};
   if(!CFG.firebase){showLogin(demoAllowed?'':'Firebase の設定（config.js）が未完了です。');$('#gLogin').onclick=()=>showLogin('Firebase の設定（config.js）が未完了です。');return;}
   try{
     const v='10.12.2',b='https://www.gstatic.com/firebasejs/'+v+'/';
@@ -567,8 +610,7 @@ async function boot(){
     if(!u){showLogin();return;}
     if(!u.email||!u.email.toLowerCase().endsWith('@'+DOMAIN)||!u.emailVerified){await auth.signOut();showLogin(`@${DOMAIN} のGoogleアカウントでログインしてください。`);return;}
     const h=await sha(u.email.toLowerCase());
-    me={name:u.displayName||u.email,email:u.email,photo:u.photoURL,isAdmin:(CFG.adminHashes||[]).includes(h),baseEditor:(CFG.editorHashes||[]).includes(h),heads:Object.keys(CFG.divisionHeads||{}).filter(id=>CFG.divisionHeads[id].includes(h)),sim:(CFG.timeTravel||{})[h]||null};
-    me.driveCheck=(CFG.driveCheckHashes||[]).includes(h)||me.heads.length>0;
+    me={name:u.displayName||u.email,email:u.email,photo:u.photoURL,isAdmin:(CFG.adminHashes||[]).includes(h),baseEditor:(CFG.editorHashes||[]).includes(h),hashHeads:Object.keys(CFG.divisionHeads||{}).filter(id=>CFG.divisionHeads[id].includes(h)),driveCheckBase:(CFG.driveCheckHashes||[]).includes(h),sim:(CFG.timeTravel||{})[h]||null};
     store=FireStore;
     try{await store.init();}catch(e){await auth.signOut();showLogin('データを読み込めませんでした（権限がありません）。');return;}
     startApp();
@@ -701,8 +743,8 @@ function viewHome(){
   Object.keys(S.reports).filter(m=>m>=cur).sort().reverse().forEach(m=>S.services.forEach(s=>{if(S.reports[m][s.id])ents.push({m,s});}));
   const missing=S.services.filter(s=>!['submitted','approved'].includes(((S.reports[cur]||{})[s.id]||{}).status));
   const can=me.canEdit;
-  const card=({m,s})=>{const st=effStatus(m,s.id),r=peek(m,s.id);
-    return `<div class="gcell hc" data-open="${m}|${s.id}">${can?`<button class="more" data-more="${m}|${s.id}" aria-label="メニュー">･･･</button><div class="cmenu" data-menu="${m}|${s.id}"><button data-rm="${m}|${s.id}">削除</button></div>`:''}<div class="cap"><b>${esc(s.name)}</b><span>${mShort(m)}</span></div><div class="pres" data-pm="${m}" data-ps="${s.id}">${presHtml(m,s.id)}</div>${scaled(pageHtml(s,r,m),200)}
+  const card=({m,s})=>{const st=effStatus(m,s.id),r=peek(m,s.id),canDel=can&&!['submitted','approved'].includes(st);   // 提出済みは削除もできない（取り下げてから）
+    return `<div class="gcell hc" data-open="${m}|${s.id}">${canDel?`<button class="more" data-more="${m}|${s.id}" aria-label="メニュー">･･･</button><div class="cmenu" data-menu="${m}|${s.id}"><button data-rm="${m}|${s.id}">削除</button></div>`:''}<div class="cap"><b>${esc(s.name)}</b><span>${mShort(m)}</span></div><div class="pres" data-pm="${m}" data-ps="${s.id}">${presHtml(m,s.id)}</div>${scaled(pageHtml(s,r,m),200)}
     <div><span class="pill ${STATUS[st][1]}">${STATUS[st][0]}</span> <span class="note">${r.updatedBy?esc(r.updatedBy.name)+' '+fmt(r.updatedAt):''}</span></div>${driveChip(m,s.id)}
 </div>`;};
   $('#main').innerHTML=`<div class="pane"><div style="display:flex;align-items:center;gap:12px;margin-bottom:6px;flex-wrap:wrap"><h2 style="margin:0">${mLabel(cur)}</h2><span class="pill st-submitted">現在号</span>${me.sim?`<button class="btn sm" id="endSim" title="自分だけの表示です">テスト表示中：${me.sim.replace(/-0?/g,'/')} として表示 ✕</button>`:''}<span class="deadline">${deadlineInfo()}</span><span class="spacer"></span><button class="btn" id="goLog">📁 ログ</button>${can?'<button class="btn pri" id="new">＋ 新規作成</button>':''}</div>
@@ -805,7 +847,8 @@ function guardLeave(next){
 function viewEdit(){
   const m=ui.month,svc=S.services.find(s=>s.id===ui.svc)||S.services[0];ui.svc=svc.id;
   const r=getReport(m,svc.id),st=effStatus(m,svc.id);
-  const locked=!me.canEdit;
+  const lv=editLevel(m,svc.id),locked=lv!=='yes';
+  const myLogReq=lv==='log'&&editReqs.find(x=>x.month===m&&x.service===svc.id&&String(x.email).toLowerCase()===(me.email||'').toLowerCase());
   const cnt=(v,l,k)=>`<span class="cnt ${cntCls(len(v),l)}" data-f="${k}">${cntText(len(v),l)}</span>`;
   const get=k=>k.split('.').reduce((o,x)=>o[x],r);
   const inp=(label,k,max,rows,ph)=>{const v=get(k);return `<div class="f"><label><span>${label}</span>${cnt(v,max,k)}</label>${rows?`<textarea rows="${rows}" data-k="${k}" placeholder="${ph||''}">${esc(v)}</textarea>`:`<input type="text" data-k="${k}" value="${esc(v)}" placeholder="${ph||''}">`}</div>`;};
@@ -818,7 +861,7 @@ function viewEdit(){
     <h2>${esc(svc.name)} <small style="font-size:13px;color:var(--sub);font-weight:600">${mLabel(m)}</small><span class="pres inl" data-pm="${m}" data-ps="${svc.id}">${presHtml(m,svc.id)}</span></h2>
     <div class="meta">${metaHtml(m,svc,r)}</div>
     ${r.note?`<div class="errs">差し戻しコメント：${esc(r.note)}</div>`:''}
-    ${locked?'<div class="viewonly">閲覧のみです。編集するには、ホームから「編集権限を申請する」を押してください。</div>':''}
+    ${lv==='member'?'<div class="viewonly">閲覧のみです。編集するには、ホームから「編集権限を申請する」を押してください。</div>':lv==='submitted'?'<div class="viewonly"><span>提出済みです。内容を直すときは、下の「提出を取り下げる」を押してください。</span></div>':lv==='log'?`<div class="viewonly"><span>過去号（ログ）です。修正できるのは、管理者とこの事業の事業部長だけです。</span>${myLogReq?'<b>修正の許可を申請中です。</b>':'<button class="btn sm pri" id="reqLog">修正の許可を申請する</button>'}</div>`:''}
     <div id="errs"></div>
     <div class="${locked?'locked':''}" id="fields">
       <div class="card"><h3>① 今月のプロダクトアップデート状況 <small>最大3件</small></h3>${list('updates',LIM.updTitle,limBody(r,'updates'))}</div>
@@ -831,7 +874,7 @@ function viewEdit(){
     </div>
     <div class="bar">
       <span class="spacer"></span>
-      ${locked?'':(r.status==='submitted'||r.status==='approved'?'<button class="btn" id="withdraw">提出を取り下げる</button>':'<button class="btn pri" id="submitBtn">提出</button>')}
+      ${lv==='submitted'?'<button class="btn" id="withdraw">提出を取り下げる</button>':lv==='yes'&&!isPast(m)?'<button class="btn pri" id="submitBtn">提出</button>':''}
     </div>
     <div class="card" style="margin-top:18px"><h3>作成・編集履歴</h3><div class="hist">${histHtml(r)}</div></div>
     <p class="note" style="margin-top:10px">入力内容は自動で保存されます。入力が終わったら「提出」を押してください。誰がいつ編集したかが記録されます。</p>
@@ -850,6 +893,7 @@ function viewEdit(){
   $('#bulk')?.addEventListener('click',()=>bulkDialog(r));
   document.querySelectorAll('[data-add]').forEach(b=>b.onclick=()=>{const k=b.dataset.add;const n=nShow(k);r['n_'+k]=Math.min(3,n+1);if(r.status==='empty')r.status='draft';save();renderKeep(n<3?`${k}.${n}.title`:null);});
   document.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{const [k,i]=b.dataset.del.split(':');const n=nShow(k);r[k].splice(+i,1);r[k].push({title:'',body:''});r['n_'+k]=Math.max(1,n-1);save();renderKeep();});
+  $('#reqLog')?.addEventListener('click',async()=>{try{await store.requestLogEdit(m,svc.id);toast('修正の許可を申請しました。承認をお待ちください');render();}catch(e){toast('申請に失敗しました：'+(e.message||e));}});
   $('#submitBtn')?.addEventListener('click',()=>submitReport(m,svc,r));
   $('#withdraw')?.addEventListener('click',async()=>{r.status='draft';await flush();renderKeep();toast('提出を取り下げました');});
   $('#pdf1').onclick=()=>downloadReportPdf(svc,r,m);
@@ -906,10 +950,16 @@ function viewSettings(){
   const pane=document.querySelector('.pane');
   const reqs=requests.slice().sort((a,b)=>String(a.at)<String(b.at)?-1:1);
   pane.insertAdjacentHTML('afterbegin',`<button class="btn sm" id="setHome" style="margin-bottom:14px">← ホームに戻る</button>
-   <h2>設定　<small style="font-size:13px;color:var(--sub);font-weight:600">編集権限</small></h2>
+   <h2>設定　<small style="font-size:13px;color:var(--sub);font-weight:600">事業部長・編集権限</small></h2>
+   <div class="card"><h3>各事業の事業部長</h3><p class="note" style="margin:0 0 12px">ここに入れた人は、その事業の事業部長として、自分の事業の通知を受け取り、ログの修正もできます。空欄の事業は、設定ファイルの初期値で動きます。人が変わったら、ここを書き換えてください。</p>
+     ${S.services.map((s,i)=>`<div class="svcrow" style="grid-template-columns:150px 1fr 1.4fr"><span style="min-width:0;font-weight:600;font-size:13px"><span class="dot" style="background:${s.color};display:inline-block;margin-right:6px"></span>${esc(s.name)}</span><input type="text" data-hn="${i}" value="${esc(s.headName||'')}" placeholder="名前"><input type="text" data-he="${i}" value="${esc(s.headEmail||'')}" placeholder="メールアドレス（@${DOMAIN}）"></div>`).join('')}</div>
    <div class="card"><h3>権限の申請 <small>${reqs.length}件</small></h3>${reqs.length?reqs.map(x=>`<div class="reqrow"><div><b>${esc(x.name)}</b><br><span class="note">${esc(x.email)}　${fmt(x.at)}</span></div><span class="spacer"></span><button class="btn sm ok" data-ap="${esc(x.email)}">承認</button><button class="btn sm" data-rj="${esc(x.email)}">却下</button></div>`).join(''):'<p class="note" style="margin:0">申請はありません。</p>'}</div>
    <div class="card"><h3>追加で承認した編集者 <small>${access.editors.length}名</small></h3>${access.editors.length?access.editors.map(e=>`<div class="reqrow"><span>${esc(e)}</span><span class="spacer"></span><button class="btn sm" data-rv="${esc(e)}">権限を外す</button></div>`).join(''):'<p class="note" style="margin:0">追加で承認した人はいません。</p>'}<p class="note" style="margin:10px 0 0">最初から編集権限のあるメンバー（設定ファイルで固定）と管理者は、ここには表示されません。</p></div>`);
   $('#setHome').onclick=()=>{ui.tab='home';render();};
+  document.querySelectorAll('[data-hn]').forEach(el=>el.onchange=()=>{S.services[el.dataset.hn].headName=el.value.trim();save();toast('保存しました');});
+  document.querySelectorAll('[data-he]').forEach(el=>el.onchange=()=>{const v=el.value.trim().toLowerCase();
+    if(v&&!v.endsWith('@'+DOMAIN)){toast(`@${DOMAIN} のメールアドレスを入れてください`);el.value=S.services[el.dataset.he].headEmail||'';return;}
+    S.services[el.dataset.he].headEmail=v;recalcRole();applyRoleUI();save();toast('保存しました');});
   const run=async(fn,msg)=>{try{await fn();toast(msg);applyRoleUI();render();}catch(e){toast('失敗しました：'+(e.message||e));}};
   document.querySelectorAll('[data-ap]').forEach(b=>b.onclick=()=>run(()=>store.approve(b.dataset.ap),'承認しました。編集できるようになります'));
   document.querySelectorAll('[data-rj]').forEach(b=>b.onclick=()=>run(()=>store.reject(b.dataset.rj),'却下しました'));
