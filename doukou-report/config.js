@@ -34,8 +34,7 @@ window.APP_CONFIG = {
     gaiheki:  ["4ca4fc276676d9288a78e41ed5b7862e2bf4bc5bad90f5907a0e96ae48f724da"],
     kaitai:   ["363fb37ebef64220824acd0776036d979d38ec6a6ef6017ba4609181be063923"]
   },
-  // Driveへの格納を記録できる人（m.kawai）／共有設定を全事業部ぶん確認できる人（m.kawai）。事業部長は、自分の事業部だけ確認できる
-  driveStoreHashes: ["0ba11eb556e64819154d3233ddee4b1f907cb8b6980de9582499e8acdc8b8912"],
+  // Driveの共有確認を、全事業部ぶん見られる人（m.kawai）。事業部長は、自分の事業部だけ見られる
   driveCheckHashes: ["0ba11eb556e64819154d3233ddee4b1f907cb8b6980de9582499e8acdc8b8912"],
   editorHashes: [
     "4467215d0c079012bca2b8305a5d7e6df3098d367a0a08807c252884054ef617",
