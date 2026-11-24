@@ -830,8 +830,6 @@ function viewEdit(){
       <div class="card"><h3>⑤ 運営者からのメッセージ</h3>${inp('メッセージ','message',LIM.message,6)}</div>
     </div>
     <div class="bar">
-      <button class="btn" id="copyPrev" ${locked?'disabled':''}>前月の内容をコピー</button>
-      <button class="btn" id="bulk" ${locked?'disabled':''}>テキスト一括貼り付け</button>
       <span class="spacer"></span>
       ${locked?'':(r.status==='submitted'||r.status==='approved'?'<button class="btn" id="withdraw">提出を取り下げる</button>':'<button class="btn pri" id="submitBtn">提出</button>')}
     </div>
