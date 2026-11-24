@@ -251,7 +251,9 @@ const DOMAIN = CFG.allowedDomain || 'madoguchi.inc';
 let S = {deadlineDay:12, services:structuredClone(DEFAULT.services), reports:{}};
 let ui = {tab:'home', svc:null, month:null, role:'sales', back:null};
 let me = null, store = null, auth = null, db = null, started = false;
-let access = {editors:[]}, requests = [], myReq = null;   // 追加で承認された編集者／権限の申請
+let access = {editors:[],decisions:{}}, requests = [], myReq = null;   // 追加で承認された編集者／承認・却下の結果／権限の申請
+const ek=e=>String(e||'').toLowerCase().replace(/[.#$\[\]\/]/g,c=>'%'+c.charCodeAt(0).toString(16));   // メールアドレスを、Firestoreの項目名に使える形にする
+const decide=(email,result)=>({...(access.decisions||{}),[ek(email)]:{result,by:me.name,at:new Date().toISOString()}});
 const sha=async t=>{const b=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(t));return [...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('');};
 /* 権限：管理者（設定・承認ができる）／編集者（編集・削除ができる）／それ以外は閲覧のみ */
 function recalcRole(){if(!me)return;me.realCanEdit=!!(me.isAdmin||me.baseEditor||access.editors.includes((me.email||'').toLowerCase()));me.canEdit=me.viewAs==='member'?false:me.realCanEdit;}
@@ -262,6 +264,8 @@ let notifs=[];
 function buildNotifs(){
   const out=[];if(!me)return out;
   if(adminUI())requests.slice().sort((a,b)=>String(a.at)<String(b.at)?-1:1).forEach(x=>out.push({kind:'info',title:'編集権限の申請',text:`${x.name}さんが編集権限を申請しています。押すと内容を確認できます。`,go:{req:x.email}}));
+  const dec=(access.decisions||{})[ek(me.email)];
+  if(dec&&!readDecisions().includes(dec.at))out.push({kind:'info',title:dec.result==='approved'?'編集権限が承認されました':'編集権限の申請が却下されました',text:dec.result==='approved'?`${dec.by}さんが承認しました。押すと内容を確認できます。`:`${dec.by}さんが対応しました。押すと内容を確認できます。`,go:{decision:dec}});
   if(me.canEdit){
     const cur=curIssue(),[y,mo]=cur.split('-').map(Number),dl=new Date(y,mo-2,S.deadlineDay),diff=Math.round((startOfDay(dl)-startOfDay(nowD()))/86400000),md=`${dl.getMonth()+1}/${dl.getDate()}`;
     if(diff<=1)S.services.forEach(sv=>{
@@ -276,7 +280,22 @@ function updateBell(){
   if(!me)return;notifs=buildNotifs();const b=$('#bellBadge'),n=notifs.filter(x=>x.go).length;
   b.textContent=n||'';b.style.display=n?'grid':'none';
   $('#bellMenu').innerHTML=`<div class="nhead">通知</div>`+(notifs.length?notifs.map((x,i)=>`<button class="nitem ${x.kind}" data-n="${i}"><b>${esc(x.title)}</b>${esc(x.text)}</button>`).join(''):'<div class="nempty">新しい通知はありません。</div>');
-  document.querySelectorAll('#bellMenu [data-n]').forEach(btn=>btn.onclick=()=>{const g=notifs[+btn.dataset.n].go;$('#bellMenu').classList.remove('open');if(!g)return;if(g.req){showRequest(g.req);return;}guardLeave(()=>{if(g.open)openReport(g.open[0],g.open[1],'home');else{ui.tab=g.tab;render();}});});
+  document.querySelectorAll('#bellMenu [data-n]').forEach(btn=>btn.onclick=()=>{const g=notifs[+btn.dataset.n].go;$('#bellMenu').classList.remove('open');if(!g)return;if(g.req){showRequest(g.req);return;}if(g.decision){showDecision(g.decision);return;}guardLeave(()=>{if(g.open)openReport(g.open[0],g.open[1],'home');else{ui.tab=g.tab;render();}});});
+}
+/* 承認・却下の結果の通知：確認したら既読にする（このブラウザに記録） */
+const readKey=()=>'doukou-read-'+ek(me&&me.email);
+let readMem=[];
+function readDecisions(){let l=[];try{l=JSON.parse(localStorage.getItem(readKey())||'[]');}catch(e){}return [...l,...readMem];}
+function markDecisionRead(at){readMem.push(at);try{localStorage.setItem(readKey(),JSON.stringify([...readDecisions(),at].slice(-30)));}catch(e){}}
+function showDecision(dec){
+  const ok=dec.result==='approved';
+  const d=document.createElement('div');d.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);display:grid;place-items:center;z-index:30;padding:20px';
+  d.innerHTML=`<div class="card" style="width:min(420px,92vw);margin:0;padding:24px 22px"><h3 style="font-size:16px;margin-bottom:14px">編集権限の申請の結果</h3>
+   <div style="display:grid;grid-template-columns:80px 1fr;gap:8px 10px;font-size:14px;margin-bottom:14px"><span class="note">結果</span><b style="color:${ok?'var(--ok)':'var(--ng)'}">${ok?'承認されました':'却下されました'}</b><span class="note">対応した人</span><span>${esc(dec.by)}</span><span class="note">日時</span><span>${fmt(dec.at)}</span></div>
+   <p class="note" style="margin:0 0 18px">${ok?'レポートの作成・編集・削除ができるようになりました。':'引き続き、閲覧のみです。必要なときは、管理者に直接ご相談ください。'}</p>
+   <div style="display:flex;justify-content:flex-end"><button class="btn pri" id="dcOk">確認しました</button></div></div>`;
+  document.body.appendChild(d);
+  d.querySelector('#dcOk').onclick=()=>{markDecisionRead(dec.at);d.remove();updateBell();};
 }
 /* 編集権限の申請の内容を確認して、その場で承認・却下できる */
 function showRequest(email){
@@ -361,8 +380,8 @@ const LocalStore={
   async init(){try{const j=JSON.parse(localStorage.getItem('doukou-demo-v1'));if(j)S=j;}catch(e){}indexSnap();},
   _w(){try{localStorage.setItem('doukou-demo-v1',JSON.stringify(S));}catch(e){}},
   async setReport(){this._w();},async delReport(){this._w();},async setConfig(){this._w();},
-  async requestEdit(){},async approve(e){access.editors=[...new Set([...access.editors,e.toLowerCase()])];requests=requests.filter(x=>x.email!==e);},
-  async reject(e){requests=requests.filter(x=>x.email!==e);},async revoke(e){access.editors=access.editors.filter(x=>x!==e);}
+  async requestEdit(){},async approve(e){access.editors=[...new Set([...access.editors,e.toLowerCase()])];access.decisions=decide(e,'approved');requests=requests.filter(x=>x.email!==e);},
+  async reject(e){access.decisions=decide(e,'rejected');requests=requests.filter(x=>x.email!==e);},async revoke(e){access.editors=access.editors.filter(x=>x!==e);}
 };
 /* デモ表示（?demo=manager／?demo=member）：Firebaseにはつながず、架空のサンプルを表示する。保存はされない */
 const DEMO_ROLE=['manager','member'].includes(new URLSearchParams(location.search).get('demo'))?new URLSearchParams(location.search).get('demo'):null;
@@ -398,7 +417,7 @@ const FireStore={
     /* 編集権限（追加で承認された人）と、権限の申請 */
     await new Promise(res=>{let f=true;
       db.collection('access').doc('main').onSnapshot(d=>{
-        access={editors:((d.exists&&d.data().editors)||[]).map(x=>String(x).toLowerCase())};
+        access={editors:((d.exists&&d.data().editors)||[]).map(x=>String(x).toLowerCase()),decisions:(d.exists&&d.data().decisions)||{}};
         const was=me.canEdit;recalcRole();applyRoleUI();
         if(f){f=false;res();}else if(started&&was!==me.canEdit){toast(me.canEdit?'編集権限が付与されました':'編集権限が外れました');render();}
       },()=>{if(f){f=false;res();}});});
@@ -406,9 +425,9 @@ const FireStore={
     else db.collection('requests').doc(me.email).onSnapshot(d=>{myReq=d.exists?d.data():null;if(started&&ui.tab==='home'&&!isTyping())render();},()=>{});
   },
   requestEdit(){return db.collection('requests').doc(me.email).set({email:me.email,name:me.name,at:new Date().toISOString()});},
-  async approve(email){await db.collection('access').doc('main').set({editors:[...new Set([...access.editors,email.toLowerCase()])]});await db.collection('requests').doc(email).delete();},
-  reject(email){return db.collection('requests').doc(email).delete();},
-  revoke(email){return db.collection('access').doc('main').set({editors:access.editors.filter(x=>x!==email)});},
+  async approve(email){await db.collection('access').doc('main').set({editors:[...new Set([...access.editors,email.toLowerCase()])],decisions:decide(email,'approved')});await db.collection('requests').doc(email).delete();},
+  async reject(email){await db.collection('access').doc('main').set({editors:access.editors,decisions:decide(email,'rejected')});await db.collection('requests').doc(email).delete();},
+  revoke(email){return db.collection('access').doc('main').set({editors:access.editors.filter(x=>x!==email),decisions:access.decisions||{}});},
   setReport(m,id,r){return db.collection('reports').doc(key(m,id)).set({month:m,service:id,report:clone(r)});},
   delReport(m,id){return db.collection('reports').doc(key(m,id)).delete();},
   setConfig(){return db.collection('config').doc('main').set({deadlineDay:S.deadlineDay,services:clone(S.services)});}
@@ -453,7 +472,7 @@ async function boot(){
   $('#bellBtn').onclick=e=>{e.stopPropagation();$('#uMenu').classList.remove('open');$('#bellMenu').classList.toggle('open');};
   $('#settingsBtn').onclick=()=>guardLeave(()=>{ui.tab='settings';render();});
   $('#goHome').onclick=()=>{if(me)guardLeave(()=>{ui.tab='home';render();});};
-  $('#logout').onclick=async()=>{await flush();if(auth)await auth.signOut();me=null;store=null;started=false;access={editors:[]};requests=[];myReq=null;showLogin();};
+  $('#logout').onclick=async()=>{await flush();if(auth)await auth.signOut();me=null;store=null;started=false;access={editors:[],decisions:{}};requests=[];myReq=null;showLogin();};
   if(!CFG.firebase){showLogin(demoAllowed?'':'Firebase の設定（config.js）が未完了です。');$('#gLogin').onclick=()=>showLogin('Firebase の設定（config.js）が未完了です。');return;}
   try{
     const v='10.12.2',b='https://www.gstatic.com/firebasejs/'+v+'/';
