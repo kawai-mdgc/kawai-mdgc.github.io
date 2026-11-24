@@ -381,7 +381,7 @@ function viewHome(){
     <div><span class="pill ${STATUS[st][1]}">${STATUS[st][0]}</span> <span class="note">${r.updatedBy?esc(r.updatedBy.name)+' '+fmt(r.updatedAt):''}</span></div>
     <div class="cap"><button class="btn sm pri" data-open="${m}|${s.id}">開く</button><button class="btn sm" data-dup="${m}|${s.id}">複製</button><button class="btn sm" data-rm="${m}|${s.id}">削除</button></div></div>`;};
   $('#main').innerHTML=`<div class="pane"><div style="display:flex;align-items:center;gap:12px;margin-bottom:6px;flex-wrap:wrap"><h2 style="margin:0">${mLabel(cur)}</h2><span class="pill st-submitted">現在号</span><span class="deadline">${deadlineInfo()}</span><span class="spacer"></span><button class="btn" id="goLog">📁 ログ</button><button class="btn pri" id="new">＋ 新規作成</button></div>
-   <p class="note" style="margin:0 0 18px">現在号のレポートが表示されます。号が変わると、過去の号は自動で「ログ」（年→事業部のフォルダ）に移ります。</p>
+   <p class="note" style="margin:0 0 18px">現在号のレポートが表示されます。号が変わると、過去の号は自動で「ログ」（事業部→年のフォルダ）に移ります。</p>
    ${missing.length?`<div class="card" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><b style="font-size:13px">${mLabel(cur)} 未提出：</b>${missing.map(s=>`<button class="btn sm" data-mk="${s.id}"><span class="dot" style="background:${s.color};display:inline-block;margin-right:6px"></span>${esc(s.name)}</button>`).join('')}</div>`:''}
    ${ents.length?`<div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(236px,1fr))">${ents.map(card).join('')}</div>`:'<div class="card" style="text-align:center;padding:48px"><p class="note">現在号のレポートはまだありません。「＋ 新規作成」から始めましょう。</p></div>'}</div>`;
   $('#new').onclick=()=>newDialog();
@@ -396,17 +396,17 @@ function viewHome(){
 /* ---------- ログ（過去号アーカイブ：年 → 事業部 → 各月） ---------- */
 function viewLog(){
   const past=[];Object.keys(S.reports).filter(isPast).sort().reverse().forEach(m=>S.services.forEach(s=>{if(S.reports[m][s.id])past.push({m,s,y:m.slice(0,4)});}));
+  const svcName=id=>((S.services.find(x=>x.id===id)||{}).name||'');
   const crumbs=`<div style="display:flex;gap:6px;align-items:center;margin-bottom:16px;flex-wrap:wrap;font-weight:600">
-    <button class="btn sm" data-lg="root">📁 ログ</button>${logPath.y?`<span>›</span><button class="btn sm" data-lg="year">📁 ${logPath.y}年</button>`:''}${logPath.s?`<span>›</span><span>📁 ${esc((S.services.find(x=>x.id===logPath.s)||{}).name||'')}</span>`:''}</div>`;
+    <button class="btn sm" data-lg="root">📁 ログ</button>${logPath.s?`<span>›</span><button class="btn sm" data-lg="svc">📁 ${esc(svcName(logPath.s))}</button>`:''}${logPath.y?`<span>›</span><span>📁 ${logPath.y}年</span>`:''}</div>`;
   const folder=(label,sub,attr,dot)=>`<button class="gcell" ${attr} style="border:0;cursor:pointer;padding:24px 14px;font:inherit"><div style="font-size:44px;line-height:1">📁</div><div style="font-weight:700">${dot?`<span class="dot" style="background:${dot};display:inline-block;margin-right:6px"></span>`:''}${label}</div><div class="note">${sub}</div></button>`;
   let body='';
-  if(!past.length) body='<div class="card" style="text-align:center;padding:48px"><p class="note">過去号はまだありません。号が変わると、ここに年別・事業部別で自動保管されます。</p></div>';
-  else if(!logPath.y){
-    const ys=[...new Set(past.map(p=>p.y))];
-    body=`<div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(160px,1fr))">${ys.map(y=>folder(y+'年',past.filter(p=>p.y===y).length+'件',`data-ly="${y}"`)).join('')}</div>`;
-  } else if(!logPath.s){
-    const inY=past.filter(p=>p.y===logPath.y);
-    body=`<div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(160px,1fr))">${S.services.filter(s=>inY.some(p=>p.s.id===s.id)).map(s=>folder(esc(s.name),inY.filter(p=>p.s.id===s.id).length+'件',`data-ls="${s.id}"`,s.color)).join('')}</div>`;
+  if(!past.length) body='<div class="card" style="text-align:center;padding:48px"><p class="note">過去号はまだありません。号が変わると、ここに事業部別・年別で自動保管されます。</p></div>';
+  else if(!logPath.s){
+    body=`<div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(160px,1fr))">${S.services.filter(s=>past.some(p=>p.s.id===s.id)).map(s=>folder(esc(s.name),past.filter(p=>p.s.id===s.id).length+'件',`data-ls="${s.id}"`,s.color)).join('')}</div>`;
+  } else if(!logPath.y){
+    const inS=past.filter(p=>p.s.id===logPath.s),ys=[...new Set(inS.map(p=>p.y))].sort();
+    body=`<div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(160px,1fr))">${ys.map(y=>folder(y+'年',inS.filter(p=>p.y===y).length+'件',`data-ly="${y}"`)).join('')}</div>`;
   } else {
     const items=past.filter(p=>p.y===logPath.y&&p.s.id===logPath.s);
     body=`<div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(236px,1fr))">${items.map(({m,s})=>{const st=effStatus(m,s.id),r=peek(m,s.id);
@@ -416,9 +416,9 @@ function viewLog(){
   $('#main').innerHTML=`<div class="pane"><button class="btn sm" id="logHome" style="margin-bottom:14px">← ホームに戻る</button><h2>ログ</h2>${crumbs}${body}</div>`;
   $('#logHome').onclick=()=>{ui.tab='home';render();};
   fitAll($('#main'));
-  document.querySelectorAll('[data-lg]').forEach(b=>b.onclick=()=>{if(b.dataset.lg==='root')logPath={y:null,s:null};else logPath.s=null;render();});
-  document.querySelectorAll('[data-ly]').forEach(b=>b.onclick=()=>{logPath={y:b.dataset.ly,s:null};render();});
-  document.querySelectorAll('[data-ls]').forEach(b=>b.onclick=()=>{logPath.s=b.dataset.ls;render();});
+  document.querySelectorAll('[data-lg]').forEach(b=>b.onclick=()=>{if(b.dataset.lg==='root')logPath={y:null,s:null};else logPath.y=null;render();});
+  document.querySelectorAll('[data-ls]').forEach(b=>b.onclick=()=>{logPath={s:b.dataset.ls,y:null};render();});
+  document.querySelectorAll('[data-ly]').forEach(b=>b.onclick=()=>{logPath.y=b.dataset.ly;render();});
   document.querySelectorAll('[data-lo]').forEach(b=>b.onclick=()=>{const [m,id]=b.dataset.lo.split('|');openReport(m,id,'log');});
   document.querySelectorAll('[data-lp]').forEach(b=>b.onclick=()=>{const [m,id]=b.dataset.lp.split('|');const sv=S.services.find(x=>x.id===id);printPages([pageHtml(sv,peek(m,id),m)],`動向レポート_${sv.name}_${m}`);});
   document.querySelectorAll('[data-ld]').forEach(b=>b.onclick=()=>{const [m,id]=b.dataset.ld.split('|');newDialog(id,m);});
