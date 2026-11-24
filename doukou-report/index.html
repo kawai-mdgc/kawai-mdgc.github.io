@@ -646,12 +646,11 @@ function viewAll(){
 }
 
 function viewSettings(){
-  viewAdmin();   // 進捗・テンプレート設定・過去号の取り込み
+  $('#main').innerHTML='<div class="pane"></div>';   // 設定は「編集権限」だけ
   const pane=document.querySelector('.pane');
-  pane.querySelectorAll('table tr').forEach(tr=>tr.lastElementChild&&tr.lastElementChild.remove());
   const reqs=requests.slice().sort((a,b)=>String(a.at)<String(b.at)?-1:1);
   pane.insertAdjacentHTML('afterbegin',`<button class="btn sm" id="setHome" style="margin-bottom:14px">← ホームに戻る</button>
-   <h2>編集権限</h2>
+   <h2>設定　<small style="font-size:13px;color:var(--sub);font-weight:600">編集権限</small></h2>
    <div class="card"><h3>権限の申請 <small>${reqs.length}件</small></h3>${reqs.length?reqs.map(x=>`<div class="reqrow"><div><b>${esc(x.name)}</b><br><span class="note">${esc(x.email)}　${fmt(x.at)}</span></div><span class="spacer"></span><button class="btn sm ok" data-ap="${esc(x.email)}">承認</button><button class="btn sm" data-rj="${esc(x.email)}">却下</button></div>`).join(''):'<p class="note" style="margin:0">申請はありません。</p>'}</div>
    <div class="card"><h3>追加で承認した編集者 <small>${access.editors.length}名</small></h3>${access.editors.length?access.editors.map(e=>`<div class="reqrow"><span>${esc(e)}</span><span class="spacer"></span><button class="btn sm" data-rv="${esc(e)}">権限を外す</button></div>`).join(''):'<p class="note" style="margin:0">追加で承認した人はいません。</p>'}<p class="note" style="margin:10px 0 0">最初から編集権限のあるメンバー（設定ファイルで固定）と管理者は、ここには表示されません。</p></div>`);
   $('#setHome').onclick=()=>{ui.tab='home';render();};
