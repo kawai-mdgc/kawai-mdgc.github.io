@@ -81,7 +81,7 @@ tr:last-child td{border-bottom:0}
 .page .top{min-height:150px;width:412px;flex:none}
 .page .sh{display:flex;align-items:flex-end;margin-bottom:12px}
 .page .sh::after{content:"";flex:1;height:0;border-bottom:1px solid #222}
-.page .sh span{border:1px solid #222;border-bottom:0;background:transparent;padding:3px 10px 4px;font-weight:700;font-size:calc(8px*var(--k));line-height:1.4;border-radius:4px 4px 0 0}
+.page .sh span{border:1px solid #222;border-bottom:0;background:transparent;padding:5px 10px 2px;font-weight:700;font-size:calc(8px*var(--k));line-height:1.4;border-radius:4px 4px 0 0}
 .page .it{margin-bottom:16px;line-height:1.7}
 .page .it.sq{margin-bottom:8px}
 .page .it:last-child{margin-bottom:0}
@@ -93,7 +93,12 @@ tr:last-child td{border-bottom:0}
 .page .row2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
 .page p.tx{margin:0;line-height:1.7;white-space:pre-wrap}
 .page .msg{border:1px solid #666;position:relative;padding:14px 12px 10px;background:#fff}
-.page .msg .lb{position:absolute;top:-.8em;left:12px;background:#fff;padding:0 8px;font-weight:700;font-size:calc(10px*var(--k));white-space:nowrap;line-height:1.5}
+.page .msg .lb{position:absolute;top:-1.3em;left:12px;background:#fff;padding:0 4px;font-weight:700;font-size:calc(10px*var(--k));white-space:nowrap;line-height:1.5;display:flex;align-items:center;gap:6px}
+.page .msg .lb .t{position:relative;padding:0 8px;z-index:0}
+.page .msg .lb .t::before{content:"";position:absolute;left:0;right:0;bottom:0;height:.95em;background:var(--brush,rgba(0,0,0,.08)) center/100% 100% no-repeat;z-index:-1}
+.page .msg .lb i{display:block;width:1px;height:2.4em;background:#222;flex:none}
+.page .msg .lb i.l{transform:rotate(-24deg)}
+.page .msg .lb i.r{transform:rotate(24deg)}
 .page .msg p{margin:0;line-height:1.8;white-space:pre-wrap}
 .page .ph{color:#bbb}
 #printRoot{display:none}
@@ -171,11 +176,11 @@ const STATUS = {empty:['未入力','st-empty'], draft:['入力中','st-draft'], 
 const LS = 'doukou-report-v5';
 
 const DEFAULT = {deadlineDay:12, services:[
-  {id:'osouji', name:'おそうじ合衆国', color:'#3fc4f0', ink:'#ffffff', base:'assets/base-osouji.png', owner:'○○ 事業部長'},
-  {id:'fuyouhin', name:'不用品回収の窓口', color:'#ffd400', ink:'#1b1b1b', base:'assets/base-fuyouhin.png', owner:'△△ 事業部長'},
-  {id:'kaitori', name:'みんなの買取', color:'#1f1f24', ink:'#ffffff', base:'assets/base-kaitori.png', owner:'□□ 事業部長'},
-  {id:'gaiheki', name:'gaiheki+', color:'#c58bd0', ink:'#ffffff', base:'assets/base-gaiheki.png', owner:'◇◇ 事業部長'},
-  {id:'kaitai', name:'解体相談所', color:'#5d6b73', ink:'#ffffff', base:'assets/base-kaitai.png', owner:'☆☆ 事業部長'},
+  {id:'osouji', name:'おそうじ合衆国', color:'#3fc4f0', ink:'#ffffff', base:'assets/base-osouji.png', brush:'assets/brush-osouji.png', owner:'○○ 事業部長'},
+  {id:'fuyouhin', name:'不用品回収の窓口', color:'#ffd400', ink:'#1b1b1b', base:'assets/base-fuyouhin.png', brush:'assets/brush-fuyouhin.png', owner:'△△ 事業部長'},
+  {id:'kaitori', name:'みんなの買取', color:'#1f1f24', ink:'#ffffff', base:'assets/base-kaitori.png', brush:'assets/brush-kaitori.png', owner:'□□ 事業部長'},
+  {id:'gaiheki', name:'gaiheki+', color:'#c58bd0', ink:'#ffffff', base:'assets/base-gaiheki.png', brush:'assets/brush-gaiheki.png', owner:'◇◇ 事業部長'},
+  {id:'kaitai', name:'解体相談所', color:'#5d6b73', ink:'#ffffff', base:'assets/base-kaitai.png', brush:'assets/brush-kaitai.png', owner:'☆☆ 事業部長'},
 ], reports:{}};
 const blank2 = k => Array.from({length:3},()=>k==='u'?{title:'',body:''}:{title:'',body:''});
 const emptyReport = () => ({status:'empty', updates:blank2(), plans:blank2(), count:'', ad:'', advice:'', message:'', layout:'auto', updated:null, note:''});
@@ -343,7 +348,7 @@ function pageHtml(svc,r,m){
     ${sec('今後のプロダクトアップデート予定', pls.length?pls.map(u=>`<div class="it sq"><h5>${esc(u.title)}</h5><p>${esc(u.body)}</p></div>`).join(''):`<p class="tx">${ph('','予定が入ります')}</p>`)}
     ${dyn}
     ${sec('ワンポイントアドバイス',`<p class="tx">${ph(r.advice,'入力してください')}</p>`)}
-    <div class="msg"><span class="lb">運営者からのメッセージ</span><p>${ph(r.message,'入力してください')}</p></div>
+    <div class="msg" style="--brush:${svc.brush?`url(${svc.brush})`:`linear-gradient(${svc.color}55,${svc.color}55)`}"><span class="lb"><i class="l"></i><span class="t">運営者からのメッセージ</span><i class="r"></i></span><p>${ph(r.message,'入力してください')}</p></div>
    </div></div>`;
 }
 /* 全体が溢れる場合のみ文字を少しずつ縮小 */
