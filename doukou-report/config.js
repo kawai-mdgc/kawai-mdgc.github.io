@@ -26,13 +26,17 @@ window.APP_CONFIG = {
   ],
   // テスト用：この人のログイン中だけ、日付をずらして表示する（ほかの人には影響しない）。不要になったら削除する
   timeTravel: { "0ba11eb556e64819154d3233ddee4b1f907cb8b6980de9582499e8acdc8b8912": "2026-12-01" },
-  // Driveへの格納を記録できる人（m.kawai）／共有設定の確認をする人（m.kawai・sasaki・ukita）。この人たちだけに機能が表示される
+  // 各事業部の事業部長：この人には、自分の事業部の通知（提出期限・Driveの共有確認）だけが届く。ここにいない人には通知は届かない
+  divisionHeads: {
+    osouji:   ["1d25105830f33cff654f01703dc4d3e02a0454a5798bfa4f4b360987e5a058d6"],
+    fuyouhin: ["eb9d1ae44321deeeac6464179d9eee76ba8911b450d406d3912dd04e29278675"],
+    kaitori:  ["0d3e05eb6dcf693f9f4c88e36fe79a5114d8034abe165f46f709fe0891027152"],
+    gaiheki:  ["4ca4fc276676d9288a78e41ed5b7862e2bf4bc5bad90f5907a0e96ae48f724da"],
+    kaitai:   ["363fb37ebef64220824acd0776036d979d38ec6a6ef6017ba4609181be063923"]
+  },
+  // Driveへの格納を記録できる人（m.kawai）／共有設定を全事業部ぶん確認できる人（m.kawai）。事業部長は、自分の事業部だけ確認できる
   driveStoreHashes: ["0ba11eb556e64819154d3233ddee4b1f907cb8b6980de9582499e8acdc8b8912"],
-  driveCheckHashes: [
-    "0ba11eb556e64819154d3233ddee4b1f907cb8b6980de9582499e8acdc8b8912",
-    "ede2e5e55ea7b2ae497c04d1cd72e91378a97afd88926f60b42e323f1afb02da",
-    "ea8d4d524403614a5b305fba262f0d7c01a1d6081a2f36c9dc4020d93790b5b9"
-  ],
+  driveCheckHashes: ["0ba11eb556e64819154d3233ddee4b1f907cb8b6980de9582499e8acdc8b8912"],
   editorHashes: [
     "4467215d0c079012bca2b8305a5d7e6df3098d367a0a08807c252884054ef617",
     "d3ed6f4c6c2174d9fcd42a9e7cd1f57fbd614526394c4a1e92cd46062ab6681a",

@@ -180,9 +180,10 @@ body.demo .demobar{display:flex}
 .bellbtn svg{width:18px;height:18px}
 .bellbtn .badge{position:absolute;top:-4px;right:-4px;background:#c8223a;color:#fff;border-radius:99px;min-width:18px;height:18px;font-size:11px;font-weight:700;display:none;place-items:center;padding:0 5px}
 #bellMenu{min-width:340px;max-width:min(380px,90vw);padding:6px}
-.btabs{display:flex;gap:4px;padding:4px 4px 6px;border-bottom:1px solid var(--line);margin-bottom:4px}
-.btab{flex:1;white-space:nowrap;border:0;background:none;font-size:11px;font-weight:700;color:var(--sub);padding:6px 6px;border-radius:8px;cursor:pointer}
-.btab.on{background:#f3f4f6;color:#111}
+.btabs{display:flex;gap:2px;padding:0 4px;margin-bottom:2px}
+#bellMenu .btab{display:inline-block;width:auto;text-align:left;border:0;background:none;font-size:12px;font-weight:600;color:var(--sub);padding:8px 8px 4px;border-bottom:2px solid transparent;border-radius:0;cursor:pointer;white-space:nowrap}
+#bellMenu .btab:hover{background:#f3f4f6}
+#bellMenu .btab.on{color:#111;border-bottom-color:#111}
 .btab i{font-style:normal;background:#c8223a;color:#fff;border-radius:8px;font-size:9px;padding:0 5px;margin-left:4px}
 #bellMenu button.nitem.done b{color:var(--ok)}
 .nhead{font-size:12px;color:var(--sub);padding:8px 12px 4px;font-weight:600}
@@ -271,7 +272,7 @@ function buildNotifs(){
   const out=[];if(!me)return out;
   if(adminUI())requests.slice().sort((a,b)=>String(a.at)<String(b.at)?-1:1).forEach(x=>out.push({kind:'info',title:'編集権限の申請',text:`${x.name}さんが編集権限を申請しています。押すと内容を確認できます。`,go:{req:x.email}}));
   if(adminUI())notices.filter(n=>!n.resolved).forEach(n=>out.push({kind:'warn',diff:-1,title:`${n.issue||''} 18時：完了していない事業があります`,text:(n.lines||[]).join(' ／ ')+'　押すと確認済みにできます。',go:{notice:n.id}}));
-  if(driveOn())Object.keys(drive).sort().forEach(k=>{const x=drive[k],sv=S.services.find(v=>v.id===x.service);if(!sv||x.month<curIssue())return;
+  if(driveOn())Object.keys(drive).sort().forEach(k=>{const x=drive[k],sv=S.services.find(v=>v.id===x.service);if(!sv||x.month<curIssue()||!inScope(x.service))return;
     const nm=`${sv.name} ${mShort(x.month)}`;
     if(!x.result)out.push({list:true,kind:'warn',diff:-99,mark:'☐',title:`${nm}：Driveに格納されました`,text:me.driveCheck?'共有設定が「リンクを知っている全員」になっているか確認してください。':'共有設定の確認待ちです。',go:{drive:k}});
     else if(x.result==='ng')out.push({list:true,kind:'warn',diff:-99,mark:'⚠',done:!me.driveStore,title:`${nm}：共有設定の修正が必要です`,text:`${x.checkedBy?x.checkedBy.name+'さんが':''}「リンクを知っている全員」になっていないと確認しました。`,go:{drive:k}});
@@ -281,6 +282,7 @@ function buildNotifs(){
   if(me.canEdit){
     const cur=curIssue(),[y,mo]=cur.split('-').map(Number),dl=new Date(y,mo-2,S.deadlineDay),diff=Math.round((startOfDay(dl)-startOfDay(nowD()))/86400000),md=`${dl.getMonth()+1}/${dl.getDate()}`;
     if(diff<=1)S.services.forEach(sv=>{
+      if(!inScope(sv.id))return;   // 事業部長には、自分の事業部の分だけ
       const r=(S.reports[cur]||{})[sv.id];if(r&&['submitted','approved'].includes(r.status))return;
       const when=diff===1?`提出期限は明日（${md}）です。`:diff===0?`提出期限は今日（${md}）です。`:`提出期限（${md}）を過ぎています。`;
       out.push({kind:'warn',diff,title:diff<0?'提出期限を過ぎています':diff===0?'今日が提出期限です':'明日が提出期限です',text:`「${sv.name}」${mShort(cur)}の${when}提出してください。`,go:r?{open:[cur,sv.id]}:{tab:'home'}});
@@ -329,6 +331,7 @@ function showRequest(email){
   d.querySelector('#rqNo').onclick=()=>done(()=>store.reject(x.email),'却下しました');
 }
 /* Driveへの格納と、共有設定の確認（格納を記録する人／確認する人だけに表示） */
+const inScope=id=>!!(me&&(me.isAdmin||(me.heads||[]).includes(id)));   // 自分の事業部（管理者は全部）
 const driveOn=()=>!!(me&&!me.viewAs&&(me.driveStore||me.driveCheck));
 async function driveMark(m,id,stored){
   const k=key(m,id);
@@ -344,7 +347,7 @@ async function driveResult(k,result){
   catch(e){toast('失敗しました：'+(e.message||e));}
 }
 function driveChip(m,id){
-  if(!driveOn())return '';const x=drive[key(m,id)];if(!x)return '';
+  if(!driveOn()||!inScope(id))return '';const x=drive[key(m,id)];if(!x)return '';
   const [t,c]=x.result==='ok'?['Drive：共有確認済み','var(--ok)']:x.result==='ng'?['Drive：共有に問題あり','var(--ng)']:['Drive：共有確認待ち','#b36b00'];
   return `<div style="margin-top:6px"><span class="note" style="color:${c};font-weight:700">● ${t}</span></div>`;
 }
@@ -524,7 +527,7 @@ async function boot(){
   $('#goHome').onclick=()=>{if(me)guardLeave(()=>{ui.tab='home';render();});};
   $('#logout').onclick=async()=>{await flush();if(auth)await auth.signOut();me=null;store=null;started=false;access={editors:[],decisions:{}};requests=[];myReq=null;drive={};showLogin();};
   if(DEMO_ROLE){
-    me={name:{admin:'管理者（デモ）',manager:'事業部長（デモ）',member:'メンバー（デモ）'}[DEMO_ROLE],email:'demo@'+DOMAIN,isAdmin:DEMO_ROLE==='admin',baseEditor:DEMO_ROLE!=='member',driveStore:DEMO_ROLE==='admin',driveCheck:DEMO_ROLE!=='member',sim:null};
+    me={name:{admin:'管理者（デモ）',manager:'事業部長（デモ）',member:'メンバー（デモ）'}[DEMO_ROLE],email:'demo@'+DOMAIN,isAdmin:DEMO_ROLE==='admin',baseEditor:DEMO_ROLE!=='member',driveStore:DEMO_ROLE==='admin',driveCheck:DEMO_ROLE!=='member',heads:DEMO_ROLE==='manager'?['osouji']:[],sim:null};
     if(DEMO_ROLE==='admin'){const t=Date.now();requests=[{email:'sample1@madoguchi.inc',name:'サンプル 一郎',at:new Date(t-3600e3).toISOString()},{email:'sample2@madoguchi.inc',name:'サンプル 二郎',at:new Date(t-600e3).toISOString()}];}
     store=DemoStore;await store.init();document.body.classList.add('demo');
     if(DEMO_ROLE!=='member'){const c=curIssue(),t=Date.now(),by={name:'管理者（デモ）',email:'demo@'+DOMAIN};drive[key(c,'osouji')]={month:c,service:'osouji',storedBy:by,storedAt:new Date(t-1800e3).toISOString(),result:null,checkedBy:null,checkedAt:null};drive[key(c,'fuyouhin')]={month:c,service:'fuyouhin',storedBy:by,storedAt:new Date(t-7200e3).toISOString(),result:'ng',checkedBy:{name:'サンプル 確認者',email:''},checkedAt:new Date(t-3600e3).toISOString()};}
@@ -533,7 +536,7 @@ async function boot(){
     $('#goHome').onclick=()=>guardLeave(()=>{ui.tab='home';render();});
     startApp();return;
   }
-  $('#demoLogin').onclick=async()=>{me={name:'デモユーザー',email:'demo@'+DOMAIN,isAdmin:true,baseEditor:true,driveStore:true,driveCheck:true};store=LocalStore;await store.init();startApp();};
+  $('#demoLogin').onclick=async()=>{me={name:'デモユーザー',email:'demo@'+DOMAIN,isAdmin:true,baseEditor:true,driveStore:true,driveCheck:true,heads:[]};store=LocalStore;await store.init();startApp();};
   if(!CFG.firebase){showLogin(demoAllowed?'':'Firebase の設定（config.js）が未完了です。');$('#gLogin').onclick=()=>showLogin('Firebase の設定（config.js）が未完了です。');return;}
   try{
     const v='10.12.2',b='https://www.gstatic.com/firebasejs/'+v+'/';
@@ -546,7 +549,8 @@ async function boot(){
     if(!u){showLogin();return;}
     if(!u.email||!u.email.toLowerCase().endsWith('@'+DOMAIN)||!u.emailVerified){await auth.signOut();showLogin(`@${DOMAIN} のGoogleアカウントでログインしてください。`);return;}
     const h=await sha(u.email.toLowerCase());
-    me={name:u.displayName||u.email,email:u.email,photo:u.photoURL,isAdmin:(CFG.adminHashes||[]).includes(h),baseEditor:(CFG.editorHashes||[]).includes(h),driveStore:(CFG.driveStoreHashes||[]).includes(h),driveCheck:(CFG.driveCheckHashes||[]).includes(h)||(CFG.editorHashes||[]).includes(h),sim:(CFG.timeTravel||{})[h]||null};
+    me={name:u.displayName||u.email,email:u.email,photo:u.photoURL,isAdmin:(CFG.adminHashes||[]).includes(h),baseEditor:(CFG.editorHashes||[]).includes(h),driveStore:(CFG.driveStoreHashes||[]).includes(h),heads:Object.keys(CFG.divisionHeads||{}).filter(id=>CFG.divisionHeads[id].includes(h)),sim:(CFG.timeTravel||{})[h]||null};
+    me.driveCheck=(CFG.driveCheckHashes||[]).includes(h)||me.heads.length>0;
     store=FireStore;
     try{await store.init();}catch(e){await auth.signOut();showLogin('データを読み込めませんでした（権限がありません）。');return;}
     startApp();
