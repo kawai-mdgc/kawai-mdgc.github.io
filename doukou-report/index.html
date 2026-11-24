@@ -478,7 +478,7 @@ function viewEdit(){
       <span class="spacer"></span>
       <button class="btn pri" id="saveBtn">保存</button>
     </div>
-    <div class="card" style="margin-top:18px"><h3>作成・編集履歴</h3><div class="hist">${(r.history||[]).length?[...r.history].reverse().slice(0,12).map(h=>`${fmt(h.at)}　<b>${esc(h.by.name)}</b>　${ACT[h.action]||h.action}`).join('<br>'):'まだ履歴がありません（最初の入力から記録されます）'}</div></div>
+    <div class="card" style="margin-top:18px"><h3>作成・編集履歴</h3><div class="hist">${(r.history||[]).some(h=>['create','edit','import'].includes(h.action))?[...r.history].filter(h=>['create','edit','import'].includes(h.action)).reverse().slice(0,12).map(h=>`${fmt(h.at)}　<b>${esc(h.by.name)}</b>　${ACT[h.action]||h.action}`).join('<br>'):'まだ履歴がありません（最初の入力から記録されます）'}</div></div>
     <p class="note" style="margin-top:10px">入力内容は自動でも保存されます。誰がいつ編集したかが記録されます。</p>
   </div>
   <div class="previewCol"><div class="lay" id="lay"></div><div id="pv"></div><button class="btn sm" id="pdf1">このサービスのPDFを保存</button></div>`;
