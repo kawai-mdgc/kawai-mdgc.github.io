@@ -260,10 +260,11 @@ function recalcRole(){if(!me)return;me.realCanEdit=!!(me.isAdmin||me.baseEditor|
 const adminUI=()=>!!(me&&me.isAdmin&&(!me.viewAs||me.viewAs==='admin'));   // 「見え方の確認」で事業部長・メンバーを選んでいる間は、管理者の画面を出さない
 /* 通知：管理者には権限の申請、編集できる人には「提出期限の前日・当日・超過」の提出のお願いを出す */
 const startOfDay=d=>new Date(d.getFullYear(),d.getMonth(),d.getDate());
-let notifs=[];
+let notifs=[], notices=[];   // notices：通知ボットが書き込む「管理者へのお知らせ」（Firestore の adminNotices）
 function buildNotifs(){
   const out=[];if(!me)return out;
   if(adminUI())requests.slice().sort((a,b)=>String(a.at)<String(b.at)?-1:1).forEach(x=>out.push({kind:'info',title:'編集権限の申請',text:`${x.name}さんが編集権限を申請しています。押すと内容を確認できます。`,go:{req:x.email}}));
+  if(adminUI())notices.filter(n=>!n.resolved).forEach(n=>out.push({kind:'warn',diff:-1,title:`${n.issue||''} 18時：完了していない事業があります`,text:(n.lines||[]).join(' ／ ')+'　押すと確認済みにできます。',go:{notice:n.id}}));
   const dec=(access.decisions||{})[ek(me.email)];
   if(dec&&!readDecisions().includes(dec.at))out.push({kind:'info',title:dec.result==='approved'?'編集権限が承認されました':'編集権限の申請が却下されました',text:dec.result==='approved'?`${dec.by}さんが承認しました。押すと内容を確認できます。`:`${dec.by}さんが対応しました。押すと内容を確認できます。`,go:{decision:dec}});
   if(me.canEdit){
@@ -280,7 +281,7 @@ function updateBell(){
   if(!me)return;notifs=buildNotifs();const b=$('#bellBadge'),n=notifs.filter(x=>x.go).length;
   b.textContent=n||'';b.style.display=n?'grid':'none';
   $('#bellMenu').innerHTML=`<div class="nhead">通知</div>`+(notifs.length?notifs.map((x,i)=>`<button class="nitem ${x.kind}" data-n="${i}"><b>${esc(x.title)}</b>${esc(x.text)}</button>`).join(''):'<div class="nempty">新しい通知はありません。</div>');
-  document.querySelectorAll('#bellMenu [data-n]').forEach(btn=>btn.onclick=()=>{const g=notifs[+btn.dataset.n].go;$('#bellMenu').classList.remove('open');if(!g)return;if(g.req){showRequest(g.req);return;}if(g.decision){showDecision(g.decision);return;}guardLeave(()=>{if(g.open)openReport(g.open[0],g.open[1],'home');else{ui.tab=g.tab;render();}});});
+  document.querySelectorAll('#bellMenu [data-n]').forEach(btn=>btn.onclick=()=>{const g=notifs[+btn.dataset.n].go;$('#bellMenu').classList.remove('open');if(!g)return;if(g.notice){const n=notices.find(x=>x.id===g.notice);if(n&&confirm(`${n.issue||''}\n18時の時点で、まだ完了していない事業があります。\n\n${(n.lines||[]).join('\n')}\n\n確認済みにしますか？（ベルから消えます）`))store.resolveNotice(n.id).then(()=>{toast('確認済みにしました');updateBell();}).catch(e=>toast('失敗しました：'+(e.message||e)));return;}if(g.req){showRequest(g.req);return;}if(g.decision){showDecision(g.decision);return;}guardLeave(()=>{if(g.open)openReport(g.open[0],g.open[1],'home');else{ui.tab=g.tab;render();}});});
 }
 /* 承認・却下の結果の通知：確認したら既読にする（このブラウザに記録） */
 const readKey=()=>'doukou-read-'+ek(me&&me.email);
@@ -379,7 +380,7 @@ const indexSnap=()=>{snap={};Object.keys(S.reports).forEach(m=>Object.keys(S.rep
 const LocalStore={
   async init(){try{const j=JSON.parse(localStorage.getItem('doukou-demo-v1'));if(j)S=j;}catch(e){}indexSnap();},
   _w(){try{localStorage.setItem('doukou-demo-v1',JSON.stringify(S));}catch(e){}},
-  async setReport(){this._w();},async delReport(){this._w();},async setConfig(){this._w();},
+  async setReport(){this._w();},async delReport(){this._w();},async setConfig(){this._w();},async resolveNotice(id){notices=notices.map(n=>n.id===id?{...n,resolved:true}:n);},
   async requestEdit(){},async approve(e){access.editors=[...new Set([...access.editors,e.toLowerCase()])];access.decisions=decide(e,'approved');requests=requests.filter(x=>x.email!==e);},
   async reject(e){access.decisions=decide(e,'rejected');requests=requests.filter(x=>x.email!==e);},async revoke(e){access.editors=access.editors.filter(x=>x!==e);}
 };
@@ -422,9 +423,11 @@ const FireStore={
         const was=me.canEdit;recalcRole();applyRoleUI();
         if(f){f=false;res();}else if(started&&was!==me.canEdit){toast(me.canEdit?'編集権限が付与されました':'編集権限が外れました');render();}
       },()=>{if(f){f=false;res();}});});
+    if(me.isAdmin)db.collection('adminNotices').onSnapshot(sn=>{notices=sn.docs.map(d=>({id:d.id,...d.data()}));updateBell();},()=>{});
     if(me.isAdmin)db.collection('requests').onSnapshot(sn=>{requests=sn.docs.map(d=>d.data());applyRoleUI();if(started&&ui.tab==='settings'&&!isTyping())render();},()=>{});
     else db.collection('requests').doc(me.email).onSnapshot(d=>{myReq=d.exists?d.data():null;if(started&&ui.tab==='home'&&!isTyping())render();},()=>{});
   },
+  resolveNotice(id){return db.collection('adminNotices').doc(id).update({resolved:true,resolvedBy:me.email,resolvedAt:new Date().toISOString()});},
   requestEdit(){return db.collection('requests').doc(me.email).set({email:me.email,name:me.name,at:new Date().toISOString()});},
   async approve(email){await db.collection('access').doc('main').set({editors:[...new Set([...access.editors,email.toLowerCase()])],decisions:decide(email,'approved')});await db.collection('requests').doc(email).delete();},
   async reject(email){await db.collection('access').doc('main').set({editors:access.editors,decisions:decide(email,'rejected')});await db.collection('requests').doc(email).delete();},
