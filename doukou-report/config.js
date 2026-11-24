@@ -26,6 +26,13 @@ window.APP_CONFIG = {
   ],
   // テスト用：この人のログイン中だけ、日付をずらして表示する（ほかの人には影響しない）。不要になったら削除する
   timeTravel: { "0ba11eb556e64819154d3233ddee4b1f907cb8b6980de9582499e8acdc8b8912": "2026-12-01" },
+  // Driveへの格納を記録できる人（m.kawai）／共有設定の確認をする人（m.kawai・sasaki・ukita）。この人たちだけに機能が表示される
+  driveStoreHashes: ["0ba11eb556e64819154d3233ddee4b1f907cb8b6980de9582499e8acdc8b8912"],
+  driveCheckHashes: [
+    "0ba11eb556e64819154d3233ddee4b1f907cb8b6980de9582499e8acdc8b8912",
+    "ede2e5e55ea7b2ae497c04d1cd72e91378a97afd88926f60b42e323f1afb02da",
+    "ea8d4d524403614a5b305fba262f0d7c01a1d6081a2f36c9dc4020d93790b5b9"
+  ],
   editorHashes: [
     "4467215d0c079012bca2b8305a5d7e6df3098d367a0a08807c252884054ef617",
     "d3ed6f4c6c2174d9fcd42a9e7cd1f57fbd614526394c4a1e92cd46062ab6681a",

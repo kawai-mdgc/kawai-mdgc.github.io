@@ -251,7 +251,8 @@ const DOMAIN = CFG.allowedDomain || 'madoguchi.inc';
 let S = {deadlineDay:12, services:structuredClone(DEFAULT.services), reports:{}};
 let ui = {tab:'home', svc:null, month:null, role:'sales', back:null};
 let me = null, store = null, auth = null, db = null, started = false;
-let access = {editors:[],decisions:{}}, requests = [], myReq = null;   // 追加で承認された編集者／承認・却下の結果／権限の申請
+let access = {editors:[],decisions:{}}, requests = [], myReq = null;
+let drive = {};   // Driveへの格納と、共有設定（リンクを知っている全員）の確認の記録。Firestore の driveChecks（月__事業部）   // 追加で承認された編集者／承認・却下の結果／権限の申請
 const ek=e=>String(e||'').toLowerCase().replace(/[.#$\[\]\/]/g,c=>'%'+c.charCodeAt(0).toString(16));   // メールアドレスを、Firestoreの項目名に使える形にする
 const decide=(email,result)=>({...(access.decisions||{}),[ek(email)]:{result,by:me.name,at:new Date().toISOString()}});
 const sha=async t=>{const b=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(t));return [...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('');};
@@ -265,6 +266,9 @@ function buildNotifs(){
   const out=[];if(!me)return out;
   if(adminUI())requests.slice().sort((a,b)=>String(a.at)<String(b.at)?-1:1).forEach(x=>out.push({kind:'info',title:'編集権限の申請',text:`${x.name}さんが編集権限を申請しています。押すと内容を確認できます。`,go:{req:x.email}}));
   if(adminUI())notices.filter(n=>!n.resolved).forEach(n=>out.push({kind:'warn',diff:-1,title:`${n.issue||''} 18時：完了していない事業があります`,text:(n.lines||[]).join(' ／ ')+'　押すと確認済みにできます。',go:{notice:n.id}}));
+  if(driveOn())Object.keys(drive).sort().forEach(k=>{const x=drive[k],sv=S.services.find(v=>v.id===x.service);if(!sv)return;
+    if(me.driveCheck&&!x.result)out.push({kind:'warn',diff:-99,title:`${sv.name} ${mShort(x.month)}：Driveに格納されました`,text:'共有設定が「リンクを知っている全員」になっているか確認してください。押すと確認できます。',go:{drive:k}});
+    else if(me.driveStore&&x.result==='ng')out.push({kind:'warn',diff:-99,title:`${sv.name} ${mShort(x.month)}：共有設定の修正が必要です`,text:`${x.checkedBy?x.checkedBy.name+'さんが':''}「リンクを知っている全員」になっていないと確認しました。押すと内容を確認できます。`,go:{drive:k}});});
   const dec=(access.decisions||{})[ek(me.email)];
   if(dec&&!readDecisions().includes(dec.at))out.push({kind:'info',title:dec.result==='approved'?'編集権限が承認されました':'編集権限の申請が却下されました',text:dec.result==='approved'?`${dec.by}さんが承認しました。押すと内容を確認できます。`:`${dec.by}さんが対応しました。押すと内容を確認できます。`,go:{decision:dec}});
   if(me.canEdit){
@@ -281,7 +285,7 @@ function updateBell(){
   if(!me)return;notifs=buildNotifs();const b=$('#bellBadge'),n=notifs.filter(x=>x.go).length;
   b.textContent=n||'';b.style.display=n?'grid':'none';
   $('#bellMenu').innerHTML=`<div class="nhead">通知</div>`+(notifs.length?notifs.map((x,i)=>`<button class="nitem ${x.kind}" data-n="${i}"><b>${esc(x.title)}</b>${esc(x.text)}</button>`).join(''):'<div class="nempty">新しい通知はありません。</div>');
-  document.querySelectorAll('#bellMenu [data-n]').forEach(btn=>btn.onclick=()=>{const g=notifs[+btn.dataset.n].go;$('#bellMenu').classList.remove('open');if(!g)return;if(g.notice){const n=notices.find(x=>x.id===g.notice);if(n&&confirm(`${n.issue||''}\n18時の時点で、まだ完了していない事業があります。\n\n${(n.lines||[]).join('\n')}\n\n確認済みにしますか？（ベルから消えます）`))store.resolveNotice(n.id).then(()=>{toast('確認済みにしました');updateBell();}).catch(e=>toast('失敗しました：'+(e.message||e)));return;}if(g.req){showRequest(g.req);return;}if(g.decision){showDecision(g.decision);return;}guardLeave(()=>{if(g.open)openReport(g.open[0],g.open[1],'home');else{ui.tab=g.tab;render();}});});
+  document.querySelectorAll('#bellMenu [data-n]').forEach(btn=>btn.onclick=()=>{const g=notifs[+btn.dataset.n].go;$('#bellMenu').classList.remove('open');if(!g)return;if(g.notice){const n=notices.find(x=>x.id===g.notice);if(n&&confirm(`${n.issue||''}\n18時の時点で、まだ完了していない事業があります。\n\n${(n.lines||[]).join('\n')}\n\n確認済みにしますか？（ベルから消えます）`))store.resolveNotice(n.id).then(()=>{toast('確認済みにしました');updateBell();}).catch(e=>toast('失敗しました：'+(e.message||e)));return;}if(g.drive){showDrive(g.drive);return;}if(g.req){showRequest(g.req);return;}if(g.decision){showDecision(g.decision);return;}guardLeave(()=>{if(g.open)openReport(g.open[0],g.open[1],'home');else{ui.tab=g.tab;render();}});});
 }
 /* 承認・却下の結果の通知：確認したら既読にする（このブラウザに記録） */
 const readKey=()=>'doukou-read-'+ek(me&&me.email);
@@ -311,6 +315,42 @@ function showRequest(email){
   d.querySelector('#rqClose').onclick=()=>d.remove();
   d.querySelector('#rqYes').onclick=()=>done(()=>store.approve(x.email),`${x.name}さんの編集権限を承認しました`);
   d.querySelector('#rqNo').onclick=()=>done(()=>store.reject(x.email),'却下しました');
+}
+/* Driveへの格納と、共有設定の確認（格納を記録する人／確認する人だけに表示） */
+const driveOn=()=>!!(me&&!me.viewAs&&(me.driveStore||me.driveCheck));
+async function driveMark(m,id,stored){
+  const k=key(m,id);
+  try{
+    if(!stored){delete drive[k];await store.delDrive(m,id);}
+    else{drive[k]={month:m,service:id,storedBy:{name:me.name,email:me.email},storedAt:new Date().toISOString(),result:null,checkedBy:null,checkedAt:null};await store.setDrive(m,id,drive[k]);}
+    toast(stored?'Driveに格納済みにしました。確認の通知を送りました':'格納済みを取り消しました');updateBell();if(ui.tab==='home'||ui.tab==='log')render();
+  }catch(e){toast('失敗しました：'+(e.message||e));}
+}
+async function driveResult(k,result){
+  const x=drive[k];if(!x)return;
+  try{x.result=result;x.checkedBy={name:me.name,email:me.email};x.checkedAt=new Date().toISOString();await store.setDrive(x.month,x.service,x);toast(result==='ok'?'確認済みにしました':'共有設定の修正をお願いしました');updateBell();if(ui.tab==='home'||ui.tab==='log')render();}
+  catch(e){toast('失敗しました：'+(e.message||e));}
+}
+function driveChip(m,id){
+  if(!driveOn())return '';const x=drive[key(m,id)];if(!x)return '';
+  const [t,c]=x.result==='ok'?['Drive：共有確認済み','var(--ok)']:x.result==='ng'?['Drive：共有に問題あり','var(--ng)']:['Drive：共有確認待ち','#b36b00'];
+  return `<div style="margin-top:6px"><span class="note" style="color:${c};font-weight:700">● ${t}</span></div>`;
+}
+function showDrive(k){
+  const x=drive[k];if(!x){toast('この確認はすでに処理されています');return;}
+  const sv=S.services.find(v=>v.id===x.service);if(!sv)return;
+  const canCheck=me.driveCheck&&!x.result,reStore=me.driveStore&&x.result==='ng';
+  const d=document.createElement('div');d.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);display:grid;place-items:center;z-index:30;padding:20px';
+  const state=x.result==='ok'?'<b style="color:var(--ok)">確認済み</b>':x.result==='ng'?'<b style="color:var(--ng)">共有設定の修正が必要</b>':'<b style="color:#b36b00">確認待ち</b>';
+  d.innerHTML=`<div class="card" style="width:min(460px,92vw);margin:0;padding:24px 22px"><h3 style="font-size:16px;margin-bottom:14px">Driveの共有設定の確認</h3>
+   <div style="display:grid;grid-template-columns:96px 1fr;gap:8px 10px;font-size:14px;margin-bottom:14px"><span class="note">事業部</span><b>${esc(sv.name)}</b><span class="note">号</span><span>${mLabel(x.month)}</span><span class="note">格納した人</span><span>${esc(x.storedBy.name)}（${fmt(x.storedAt)}）</span><span class="note">状態</span><span>${state}</span>${x.checkedBy?`<span class="note">確認した人</span><span>${esc(x.checkedBy.name)}（${fmt(x.checkedAt)}）</span>`:''}</div>
+   <p class="note" style="margin:0 0 18px">${canCheck?'DriveでこのPDFを開き、共有が「リンクを知っている全員」になっているか確認してください。':reStore?'共有設定を直したら、「直しました」を押してください。もう一度、確認の通知が届きます。':'この確認は完了しています。'}</p>
+   <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap"><button class="btn" id="dvClose">閉じる</button>${canCheck?'<button class="btn" id="dvNg">なっていない</button><button class="btn ok" id="dvOk">なっている（確認済み）</button>':''}${reStore?'<button class="btn ok" id="dvAgain">直しました（再確認を依頼）</button>':''}</div></div>`;
+  document.body.appendChild(d);
+  const go=fn=>{d.remove();fn();};
+  d.querySelector('#dvClose').onclick=()=>d.remove();
+  if(canCheck){d.querySelector('#dvOk').onclick=()=>go(()=>driveResult(k,'ok'));d.querySelector('#dvNg').onclick=()=>go(()=>driveResult(k,'ng'));}
+  if(reStore)d.querySelector('#dvAgain').onclick=()=>go(()=>driveMark(x.month,x.service,true));
 }
 const VA_NAME={admin:'管理者',manager:'事業部長',member:'メンバー'};
 function setViewAs(v){
@@ -380,7 +420,7 @@ const indexSnap=()=>{snap={};Object.keys(S.reports).forEach(m=>Object.keys(S.rep
 const LocalStore={
   async init(){try{const j=JSON.parse(localStorage.getItem('doukou-demo-v1'));if(j)S=j;}catch(e){}indexSnap();},
   _w(){try{localStorage.setItem('doukou-demo-v1',JSON.stringify(S));}catch(e){}},
-  async setReport(){this._w();},async delReport(){this._w();},async setConfig(){this._w();},async resolveNotice(id){notices=notices.map(n=>n.id===id?{...n,resolved:true}:n);},
+  async setReport(){this._w();},async delReport(){this._w();},async setConfig(){this._w();},async resolveNotice(id){notices=notices.map(n=>n.id===id?{...n,resolved:true}:n);},async setDrive(m,id,o){drive[key(m,id)]=o;},async delDrive(m,id){delete drive[key(m,id)];},
   async requestEdit(){},async approve(e){access.editors=[...new Set([...access.editors,e.toLowerCase()])];access.decisions=decide(e,'approved');requests=requests.filter(x=>x.email!==e);},
   async reject(e){access.decisions=decide(e,'rejected');requests=requests.filter(x=>x.email!==e);},async revoke(e){access.editors=access.editors.filter(x=>x!==e);}
 };
@@ -399,7 +439,7 @@ function demoSample(){
 }
 const DemoStore={
   async init(){S.reports=demoSample();indexSnap();},
-  async setReport(){},async delReport(){},async setConfig(){},async requestEdit(){},
+  async setReport(){},async delReport(){},async setConfig(){},async requestEdit(){},async setDrive(m,id,o){drive[key(m,id)]=o;},async delDrive(m,id){delete drive[key(m,id)];},
   async approve(e){return LocalStore.approve(e);},async reject(e){return LocalStore.reject(e);},async revoke(e){return LocalStore.revoke(e);}   // デモでも、承認・却下の動きは画面上で試せる（保存はされない）
 };
 const FireStore={
@@ -423,10 +463,13 @@ const FireStore={
         const was=me.canEdit;recalcRole();applyRoleUI();
         if(f){f=false;res();}else if(started&&was!==me.canEdit){toast(me.canEdit?'編集権限が付与されました':'編集権限が外れました');render();}
       },()=>{if(f){f=false;res();}});});
+    if(me.driveStore||me.driveCheck)db.collection('driveChecks').onSnapshot(sn=>{drive={};sn.docs.forEach(d=>{const v=d.data();drive[key(v.month,v.service)]=v;});updateBell();if(started&&(ui.tab==='home'||ui.tab==='log')&&!isTyping())render();},()=>{});
     if(me.isAdmin)db.collection('adminNotices').onSnapshot(sn=>{notices=sn.docs.map(d=>({id:d.id,...d.data()}));updateBell();},()=>{});
     if(me.isAdmin)db.collection('requests').onSnapshot(sn=>{requests=sn.docs.map(d=>d.data());applyRoleUI();if(started&&ui.tab==='settings'&&!isTyping())render();},()=>{});
     else db.collection('requests').doc(me.email).onSnapshot(d=>{myReq=d.exists?d.data():null;if(started&&ui.tab==='home'&&!isTyping())render();},()=>{});
   },
+  setDrive(m,id,o){return db.collection('driveChecks').doc(key(m,id)).set(clone(o));},
+  delDrive(m,id){return db.collection('driveChecks').doc(key(m,id)).delete();},
   resolveNotice(id){return db.collection('adminNotices').doc(id).update({resolved:true,resolvedBy:me.email,resolvedAt:new Date().toISOString()});},
   requestEdit(){return db.collection('requests').doc(me.email).set({email:me.email,name:me.name,at:new Date().toISOString()});},
   async approve(email){await db.collection('access').doc('main').set({editors:[...new Set([...access.editors,email.toLowerCase()])],decisions:decide(email,'approved')});await db.collection('requests').doc(email).delete();},
@@ -467,17 +510,18 @@ async function boot(){
   $('#bellBtn').onclick=e=>{e.stopPropagation();$('#uMenu').classList.remove('open');$('#bellMenu').classList.toggle('open');};
   $('#settingsBtn').onclick=()=>guardLeave(()=>{ui.tab='settings';render();});
   $('#goHome').onclick=()=>{if(me)guardLeave(()=>{ui.tab='home';render();});};
-  $('#logout').onclick=async()=>{await flush();if(auth)await auth.signOut();me=null;store=null;started=false;access={editors:[],decisions:{}};requests=[];myReq=null;showLogin();};
+  $('#logout').onclick=async()=>{await flush();if(auth)await auth.signOut();me=null;store=null;started=false;access={editors:[],decisions:{}};requests=[];myReq=null;drive={};showLogin();};
   if(DEMO_ROLE){
-    me={name:{admin:'管理者（デモ）',manager:'事業部長（デモ）',member:'メンバー（デモ）'}[DEMO_ROLE],email:'demo@'+DOMAIN,isAdmin:DEMO_ROLE==='admin',baseEditor:DEMO_ROLE!=='member',sim:null};
+    me={name:{admin:'管理者（デモ）',manager:'事業部長（デモ）',member:'メンバー（デモ）'}[DEMO_ROLE],email:'demo@'+DOMAIN,isAdmin:DEMO_ROLE==='admin',baseEditor:DEMO_ROLE!=='member',driveStore:DEMO_ROLE==='admin',driveCheck:DEMO_ROLE==='admin',sim:null};
     if(DEMO_ROLE==='admin'){const t=Date.now();requests=[{email:'sample1@madoguchi.inc',name:'サンプル 一郎',at:new Date(t-3600e3).toISOString()},{email:'sample2@madoguchi.inc',name:'サンプル 二郎',at:new Date(t-600e3).toISOString()}];}
     store=DemoStore;await store.init();document.body.classList.add('demo');
+    if(DEMO_ROLE==='admin'){const c=curIssue(),t=Date.now(),by={name:'管理者（デモ）',email:'demo@'+DOMAIN};drive[key(c,'osouji')]={month:c,service:'osouji',storedBy:by,storedAt:new Date(t-1800e3).toISOString(),result:null,checkedBy:null,checkedAt:null};drive[key(c,'fuyouhin')]={month:c,service:'fuyouhin',storedBy:by,storedAt:new Date(t-7200e3).toISOString(),result:'ng',checkedBy:{name:'サンプル 確認者',email:''},checkedAt:new Date(t-3600e3).toISOString()};}
     $('#demoBar').innerHTML=`<b>デモ表示</b><span>架空のサンプルです。入力しても保存されません。</span><span style="flex:1"></span><a href="?demo=admin" class="${DEMO_ROLE==='admin'?'on':''}">管理者（設定・承認ができる）</a><a href="?demo=manager" class="${DEMO_ROLE==='manager'?'on':''}">事業部長（編集・削除できる）</a><a href="?demo=member" class="${DEMO_ROLE==='member'?'on':''}">メンバー（閲覧のみ）</a>`;
     $('#logout').onclick=()=>{location.href=location.pathname;};
     $('#goHome').onclick=()=>guardLeave(()=>{ui.tab='home';render();});
     startApp();return;
   }
-  $('#demoLogin').onclick=async()=>{me={name:'デモユーザー',email:'demo@'+DOMAIN,isAdmin:true,baseEditor:true};store=LocalStore;await store.init();startApp();};
+  $('#demoLogin').onclick=async()=>{me={name:'デモユーザー',email:'demo@'+DOMAIN,isAdmin:true,baseEditor:true,driveStore:true,driveCheck:true};store=LocalStore;await store.init();startApp();};
   if(!CFG.firebase){showLogin(demoAllowed?'':'Firebase の設定（config.js）が未完了です。');$('#gLogin').onclick=()=>showLogin('Firebase の設定（config.js）が未完了です。');return;}
   try{
     const v='10.12.2',b='https://www.gstatic.com/firebasejs/'+v+'/';
@@ -490,7 +534,7 @@ async function boot(){
     if(!u){showLogin();return;}
     if(!u.email||!u.email.toLowerCase().endsWith('@'+DOMAIN)||!u.emailVerified){await auth.signOut();showLogin(`@${DOMAIN} のGoogleアカウントでログインしてください。`);return;}
     const h=await sha(u.email.toLowerCase());
-    me={name:u.displayName||u.email,email:u.email,photo:u.photoURL,isAdmin:(CFG.adminHashes||[]).includes(h),baseEditor:(CFG.editorHashes||[]).includes(h),sim:(CFG.timeTravel||{})[h]||null};
+    me={name:u.displayName||u.email,email:u.email,photo:u.photoURL,isAdmin:(CFG.adminHashes||[]).includes(h),baseEditor:(CFG.editorHashes||[]).includes(h),driveStore:(CFG.driveStoreHashes||[]).includes(h),driveCheck:(CFG.driveCheckHashes||[]).includes(h),sim:(CFG.timeTravel||{})[h]||null};
     store=FireStore;
     try{await store.init();}catch(e){await auth.signOut();showLogin('データを読み込めませんでした（権限がありません）。');return;}
     startApp();
@@ -623,8 +667,8 @@ function viewHome(){
   const missing=S.services.filter(s=>!['submitted','approved'].includes(((S.reports[cur]||{})[s.id]||{}).status));
   const can=me.canEdit;
   const card=({m,s})=>{const st=effStatus(m,s.id),r=peek(m,s.id);
-    return `<div class="gcell hc" data-open="${m}|${s.id}">${can?`<button class="more" data-more="${m}|${s.id}" aria-label="メニュー">･･･</button><div class="cmenu" data-menu="${m}|${s.id}"><button data-rm="${m}|${s.id}">削除</button></div>`:''}<div class="cap"><b>${esc(s.name)}</b><span>${mShort(m)}</span></div>${scaled(pageHtml(s,r,m),200)}
-    <div><span class="pill ${STATUS[st][1]}">${STATUS[st][0]}</span> <span class="note">${r.updatedBy?esc(r.updatedBy.name)+' '+fmt(r.updatedAt):''}</span></div>
+    return `<div class="gcell hc" data-open="${m}|${s.id}">${(can||(driveOn()&&me.driveStore))?`<button class="more" data-more="${m}|${s.id}" aria-label="メニュー">･･･</button><div class="cmenu" data-menu="${m}|${s.id}">${driveOn()&&me.driveStore?`<button class="neutral" data-ds="${m}|${s.id}">${drive[key(m,s.id)]?'Drive格納済みを取り消す':'Driveに格納済みにする'}</button>`:''}${can?`<button data-rm="${m}|${s.id}">削除</button>`:''}</div>`:''}<div class="cap"><b>${esc(s.name)}</b><span>${mShort(m)}</span></div>${scaled(pageHtml(s,r,m),200)}
+    <div><span class="pill ${STATUS[st][1]}">${STATUS[st][0]}</span> <span class="note">${r.updatedBy?esc(r.updatedBy.name)+' '+fmt(r.updatedAt):''}</span></div>${driveChip(m,s.id)}
 </div>`;};
   $('#main').innerHTML=`<div class="pane"><div style="display:flex;align-items:center;gap:12px;margin-bottom:6px;flex-wrap:wrap"><h2 style="margin:0">${mLabel(cur)}</h2><span class="pill st-submitted">現在号</span>${me.sim?`<button class="btn sm" id="endSim" title="自分だけの表示です">テスト表示中：${me.sim.replace(/-0?/g,'/')} として表示 ✕</button>`:''}<span class="deadline">${deadlineInfo()}</span><span class="spacer"></span><button class="btn" id="goLog">📁 ログ</button>${can?'<button class="btn pri" id="new">＋ 新規作成</button>':''}</div>
    <p class="note" style="margin:0 0 18px">現在号のレポートが表示されます。号が変わると、過去の号は自動で「ログ」（事業部→年のフォルダ）に移ります。</p>
@@ -638,6 +682,7 @@ function viewHome(){
   document.querySelectorAll('[data-mk]').forEach(b=>b.onclick=()=>{const id=b.dataset.mk;if((S.reports[cur]||{})[id])openReport(cur,id);else newDialog(id);});
   document.querySelectorAll('.hc[data-open]').forEach(c=>c.onclick=e=>{if(e.target.closest('.more,.cmenu'))return;const [m,id]=c.dataset.open.split('|');openReport(m,id);});
   document.querySelectorAll('[data-more]').forEach(b=>b.onclick=e=>{e.stopPropagation();const menu=document.querySelector(`[data-menu="${b.dataset.more}"]`),was=menu.classList.contains('open');document.querySelectorAll('.cmenu.open').forEach(x=>x.classList.remove('open'));if(!was)menu.classList.add('open');});
+  document.querySelectorAll('[data-ds]').forEach(b=>b.onclick=e=>{e.stopPropagation();const [m,id]=b.dataset.ds.split('|');driveMark(m,id,!drive[key(m,id)]);});
   document.querySelectorAll('[data-rm]').forEach(b=>b.onclick=e=>{e.stopPropagation();const [m,id]=b.dataset.rm.split('|');
     if(confirm(`${S.services.find(x=>x.id===id).name}（${mLabel(m)}）を削除します。元に戻せません。よろしいですか？`)){delete S.reports[m][id];if(!Object.keys(S.reports[m]).length)delete S.reports[m];save();refreshMonths();render();}});
 }
