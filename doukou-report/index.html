@@ -570,6 +570,34 @@ function pageHtml(svc,r,m,forceLay){
 function fitAll(root){root.querySelectorAll('.page').forEach(p=>{const bd=p.querySelector('.bd');let k=1;p.style.setProperty('--k',k);
   while(bd.scrollHeight>bd.clientHeight+1&&k>0.7){k-=0.02;p.style.setProperty('--k',k.toFixed(2));}});}
 const scaled=(html,w)=>{const sc=w/595;return `<div class="pagebox" style="width:${w}px;height:${842*sc}px"><div style="position:absolute;left:0;top:0;width:595px;height:842px;transform:scale(${sc});transform-origin:0 0">${html}</div></div>`;};
+/* PDFを、画面を挟まずにそのままダウンロードする（ブラウザの中でPDFを作る。保存先は、ブラウザの「ダウンロード」の設定どおり） */
+const PDF_LIBS=['https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js','https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'];
+async function ensurePdfLibs(){
+  if(!window.html2canvas)await loadScript(PDF_LIBS[0]);
+  if(!(window.jspdf&&window.jspdf.jsPDF))await loadScript(PDF_LIBS[1]);
+}
+async function makeReportPdf(svc,r,m){
+  await ensurePdfLibs();
+  if(svc.base)await new Promise(res=>{const i=new Image();i.onload=i.onerror=res;i.src=svc.base;});
+  if(document.fonts&&document.fonts.ready)await document.fonts.ready;
+  const box=document.createElement('div');
+  box.style.cssText='position:fixed;left:-10000px;top:0;width:595px;height:842px;background:#fff';
+  box.innerHTML=pageHtml(svc,r,m);document.body.appendChild(box);
+  try{
+    fitAll(box);
+    const page=box.querySelector('.page');page.style.boxShadow='none';
+    const canvas=await html2canvas(page,{scale:3,useCORS:true,backgroundColor:'#ffffff',logging:false});
+    const {jsPDF}=window.jspdf;
+    const pdf=new jsPDF({unit:'pt',format:[595,842],compress:true});
+    pdf.addImage(canvas.toDataURL('image/jpeg',0.92),'JPEG',0,0,595,842);
+    return pdf;
+  }finally{box.remove();}
+}
+async function downloadReportPdf(svc,r,m){
+  const name=`${svc.name}_${m.replace('-','')}`;
+  try{(await makeReportPdf(svc,r,m)).save(name+'.pdf');return true;}
+  catch(e){console.error(e);toast('PDFを直接保存できませんでした。保存の画面を開きます');printPages([pageHtml(svc,r,m)],name);return false;}
+}
 function printPages(list,title){const pr=$('#printRoot');pr.innerHTML=list.join('');fitAll(pr);document.title=title;window.print();document.title='動向レポート作成ツール';}
 
 /* 画面 */
@@ -642,7 +670,7 @@ function viewLog(){
   document.querySelectorAll('[data-ly]').forEach(b=>b.onclick=()=>{logPath.y=b.dataset.ly;render();});
   document.querySelectorAll('.hc[data-open]').forEach(c=>c.onclick=e=>{if(e.target.closest('.more,.cmenu'))return;const [m,id]=c.dataset.open.split('|');openReport(m,id,'log');});
   document.querySelectorAll('[data-more]').forEach(b=>b.onclick=e=>{e.stopPropagation();const menu=document.querySelector(`[data-menu="${b.dataset.more}"]`),was=menu.classList.contains('open');document.querySelectorAll('.cmenu.open').forEach(x=>x.classList.remove('open'));if(!was)menu.classList.add('open');});
-  document.querySelectorAll('[data-lp]').forEach(b=>b.onclick=e=>{e.stopPropagation();const [m,id]=b.dataset.lp.split('|');const sv=S.services.find(x=>x.id===id);printPages([pageHtml(sv,peek(m,id),m)],`${sv.name}_${m.replace('-','')}`);});
+  document.querySelectorAll('[data-lp]').forEach(b=>b.onclick=e=>{e.stopPropagation();const [m,id]=b.dataset.lp.split('|');const sv=S.services.find(x=>x.id===id);downloadReportPdf(sv,peek(m,id),m);});
 }
 function openReport(m,id,from){ui.back=from||'home';ui.month=m;ui.svc=id;ui.tab='edit';refreshMonths();render();}
 function newDialog(preSvc,copyFrom){
@@ -676,8 +704,8 @@ async function submitReport(m,svc,r){
     return false;
   }
   r.status='submitted';r.note='';await flush();if(ui.tab==='edit')renderKeep();
-  toast('提出しました。PDFを保存してください');
-  printPages([pageHtml(svc,r,m)],`${svc.name}_${m.replace('-','')}`);
+  toast('提出しました。PDFを作成しています…');
+  if(await downloadReportPdf(svc,r,m))toast('提出しました。PDFをダウンロードしました（ファイル名：'+svc.name+'_'+m.replace('-','')+'.pdf）');
   return true;
 }
 /* 提出前に入力画面から出ようとしたら確認する */
@@ -745,7 +773,7 @@ function viewEdit(){
   document.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{const [k,i]=b.dataset.del.split(':');const n=nShow(k);r[k].splice(+i,1);r[k].push({title:'',body:''});r['n_'+k]=Math.max(1,n-1);save();renderKeep();});
   $('#submitBtn')?.addEventListener('click',()=>submitReport(m,svc,r));
   $('#withdraw')?.addEventListener('click',async()=>{r.status='draft';await flush();renderKeep();toast('提出を取り下げました');});
-  $('#pdf1').onclick=()=>printPages([pageHtml(svc,r,m)],`${svc.name}_${m.replace('-','')}`);
+  $('#pdf1').onclick=()=>downloadReportPdf(svc,r,m);
   draw(svc,r,m);
 }
 function draw(svc,r,m){const box=$('#pv');if(!box)return;const w=Math.min($('.previewCol').clientWidth-40,520);
@@ -788,7 +816,7 @@ function viewAll(){
     <button class="btn pri" id="pdf">全サービスをPDFで保存</button></div>
     <div class="grid" id="g">${S.services.map(s=>`<div class="gcell"><div class="cap"><b>${esc(s.name)}</b><span class="pill ${STATUS[effStatus(m,s.id)][1]}">${STATUS[effStatus(m,s.id)][0]}</span><button class="btn sm" data-p="${s.id}">PDF</button></div>${scaled(pageHtml(s,peek(m,s.id),m),280)}</div>`).join('')}</div></div>`;
   fitAll($('#g'));
-  document.querySelectorAll('[data-p]').forEach(b=>b.onclick=()=>{const s=S.services.find(x=>x.id===b.dataset.p);printPages([pageHtml(s,peek(m,s.id),m)],`${s.name}_${m.replace('-','')}`);});
+  document.querySelectorAll('[data-p]').forEach(b=>b.onclick=()=>{const s=S.services.find(x=>x.id===b.dataset.p);downloadReportPdf(s,peek(m,s.id),m);});
   $('#pdf').onclick=()=>{if(done<S.services.length&&!confirm('未提出のサービスがあります。このまま出力しますか？'))return;printPages(S.services.map(s=>pageHtml(s,peek(m,s.id),m)),`動向レポート_${m}`);};
   $('#exp').onclick=()=>{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(S,null,2)],{type:'application/json'}));a.download=`doukou-${m}.json`;a.click();};
   $('#imp').onchange=e=>{const f=e.target.files[0];if(!f)return;f.text().then(t=>{try{S=JSON.parse(t);save();init();toast('読み込みました');}catch(x){toast('読込に失敗しました');}});};
