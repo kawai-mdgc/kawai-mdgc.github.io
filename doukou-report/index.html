@@ -353,8 +353,8 @@ async function boot(){
   $('#demoLogin').onclick=async()=>{me={name:'デモユーザー',email:'demo@'+DOMAIN,isAdmin:true,baseEditor:true};store=LocalStore;await store.init();startApp();};
   $('#userBtn').onclick=e=>{e.stopPropagation();const o=$('#uMenu').classList.toggle('open');$('#userBtn').setAttribute('aria-expanded',o);};
   document.addEventListener('click',e=>{if(!e.target.closest('.user'))$('#uMenu').classList.remove('open');if(!e.target.closest('.cmenu,.more'))document.querySelectorAll('.cmenu.open').forEach(x=>x.classList.remove('open'));});
-  $('#settingsBtn').onclick=()=>{ui.tab='settings';render();};
-  $('#goHome').onclick=()=>{if(me){ui.tab='home';render();}};
+  $('#settingsBtn').onclick=()=>guardLeave(()=>{ui.tab='settings';render();});
+  $('#goHome').onclick=()=>{if(me)guardLeave(()=>{ui.tab='home';render();});};
   $('#logout').onclick=async()=>{await flush();if(auth)await auth.signOut();me=null;store=null;started=false;access={editors:[]};requests=[];myReq=null;showLogin();};
   if(!CFG.firebase){showLogin(demoAllowed?'':'Firebase の設定（config.js）が未完了です。');$('#gLogin').onclick=()=>showLogin('Firebase の設定（config.js）が未完了です。');return;}
   try{
@@ -519,7 +519,7 @@ function viewLog(){
   document.querySelectorAll('[data-ly]').forEach(b=>b.onclick=()=>{logPath.y=b.dataset.ly;render();});
   document.querySelectorAll('.hc[data-open]').forEach(c=>c.onclick=e=>{if(e.target.closest('.more,.cmenu'))return;const [m,id]=c.dataset.open.split('|');openReport(m,id,'log');});
   document.querySelectorAll('[data-more]').forEach(b=>b.onclick=e=>{e.stopPropagation();const menu=document.querySelector(`[data-menu="${b.dataset.more}"]`),was=menu.classList.contains('open');document.querySelectorAll('.cmenu.open').forEach(x=>x.classList.remove('open'));if(!was)menu.classList.add('open');});
-  document.querySelectorAll('[data-lp]').forEach(b=>b.onclick=e=>{e.stopPropagation();const [m,id]=b.dataset.lp.split('|');const sv=S.services.find(x=>x.id===id);printPages([pageHtml(sv,peek(m,id),m)],`動向レポート_${sv.name}_${m}`);});
+  document.querySelectorAll('[data-lp]').forEach(b=>b.onclick=e=>{e.stopPropagation();const [m,id]=b.dataset.lp.split('|');const sv=S.services.find(x=>x.id===id);printPages([pageHtml(sv,peek(m,id),m)],`${sv.name}_${m.replace('-','')}`);});
 }
 function openReport(m,id,from){ui.back=from||'home';ui.month=m;ui.svc=id;ui.tab='edit';refreshMonths();render();}
 function newDialog(preSvc,copyFrom){
@@ -543,6 +543,33 @@ function newDialog(preSvc,copyFrom){
 }
 function nextMonth(m){const [y,mo]=m.split('-').map(Number),d=new Date(y,mo,1);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');}
 
+/* 提出：必須項目と文字数を確認 → 提出済みにする → PDFの保存画面を開く */
+async function submitReport(m,svc,r){
+  const e=validate(r);
+  if(e.length){
+    const box=$('#errs');
+    if(box){box.innerHTML=`<div class="errs">提出できません。以下を直してください。<ul>${e.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></div>`;box.scrollIntoView({behavior:'smooth'});}
+    else toast('提出できません：'+e[0]);
+    return false;
+  }
+  r.status='submitted';r.note='';await flush();if(ui.tab==='edit')renderKeep();
+  toast('提出しました。PDFを保存してください');
+  printPages([pageHtml(svc,r,m)],`${svc.name}_${m.replace('-','')}`);
+  return true;
+}
+/* 提出前に入力画面から出ようとしたら確認する */
+function guardLeave(next){
+  const svc=ui.tab==='edit'&&me&&me.canEdit?S.services.find(x=>x.id===ui.svc):null,r=svc&&(S.reports[ui.month]||{})[svc.id],st=svc&&effStatus(ui.month,svc.id);
+  if(!svc||!r||['submitted','approved','empty'].includes(st)){next();return;}
+  const d=document.createElement('div');d.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);display:grid;place-items:center;z-index:30;padding:20px';
+  d.innerHTML=`<div class="card" style="width:min(420px,92vw);margin:0;text-align:center;padding:26px 22px"><h3 style="justify-content:center;font-size:16px;margin-bottom:8px">まだ提出できていません</h3>
+   <p class="note" style="margin:0 0 20px;font-size:13px">この内容で提出しますか？</p>
+   <div style="display:grid;gap:8px"><button class="btn pri" id="lvSubmit">提出する</button><button class="btn" id="lvBack">編集に戻る</button><button class="btn sm" id="lvLeave" style="border:0;background:none;color:var(--sub)">提出せずに戻る（入力した内容は保存されています）</button></div></div>`;
+  document.body.appendChild(d);
+  d.querySelector('#lvBack').onclick=()=>d.remove();
+  d.querySelector('#lvLeave').onclick=()=>{d.remove();next();};
+  d.querySelector('#lvSubmit').onclick=async()=>{d.remove();if(await submitReport(ui.month,svc,r))next();};
+}
 function viewEdit(){
   const m=ui.month,svc=S.services.find(s=>s.id===ui.svc)||S.services[0];ui.svc=svc.id;
   const r=getReport(m,svc.id),st=effStatus(m,svc.id);
@@ -580,7 +607,7 @@ function viewEdit(){
     <p class="note" style="margin-top:10px">入力内容は自動で保存されます。入力が終わったら「提出」を押してください。誰がいつ編集したかが記録されます。</p>
   </div>
   <div class="previewCol"><div class="lay" id="lay"></div><div id="pv"></div><button class="btn sm" id="pdf1">このサービスのPDFを保存</button></div>`;
-  $('#back').onclick=()=>{ui.tab=ui.back||'home';render();};
+  $('#back').onclick=()=>guardLeave(()=>{ui.tab=ui.back||'home';render();});
   const sel=$('[data-k=layout]');sel.value=r.layout;
   document.querySelectorAll('#fields [data-k]').forEach(el=>el.oninput=el.onchange=()=>{
     const path=el.dataset.k.split('.');let o=r;for(let i=0;i<path.length-1;i++)o=o[path[i]];o[path[path.length-1]]=el.value;
@@ -593,14 +620,9 @@ function viewEdit(){
   $('#bulk')?.addEventListener('click',()=>bulkDialog(r));
   document.querySelectorAll('[data-add]').forEach(b=>b.onclick=()=>{const k=b.dataset.add;const n=nShow(k);r['n_'+k]=Math.min(3,n+1);if(r.status==='empty')r.status='draft';save();renderKeep(n<3?`${k}.${n}.title`:null);});
   document.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{const [k,i]=b.dataset.del.split(':');const n=nShow(k);r[k].splice(+i,1);r[k].push({title:'',body:''});r['n_'+k]=Math.max(1,n-1);save();renderKeep();});
-  $('#submitBtn')?.addEventListener('click',async()=>{
-    const e=validate(r);
-    if(e.length){$('#errs').innerHTML=`<div class="errs">提出できません。以下を直してください。<ul>${e.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></div>`;$('#errs').scrollIntoView({behavior:'smooth'});return;}
-    r.status='submitted';r.note='';await flush();renderKeep();
-    toast('提出しました');
-  });
+  $('#submitBtn')?.addEventListener('click',()=>submitReport(m,svc,r));
   $('#withdraw')?.addEventListener('click',async()=>{r.status='draft';await flush();renderKeep();toast('提出を取り下げました');});
-  $('#pdf1').onclick=()=>printPages([pageHtml(svc,r,m)],`動向レポート_${svc.name}_${m}`);
+  $('#pdf1').onclick=()=>printPages([pageHtml(svc,r,m)],`${svc.name}_${m.replace('-','')}`);
   draw(svc,r,m);
 }
 function draw(svc,r,m){const box=$('#pv');if(!box)return;const w=Math.min($('.previewCol').clientWidth-40,520);
@@ -643,7 +665,7 @@ function viewAll(){
     <button class="btn pri" id="pdf">全サービスをPDFで保存</button></div>
     <div class="grid" id="g">${S.services.map(s=>`<div class="gcell"><div class="cap"><b>${esc(s.name)}</b><span class="pill ${STATUS[effStatus(m,s.id)][1]}">${STATUS[effStatus(m,s.id)][0]}</span><button class="btn sm" data-p="${s.id}">PDF</button></div>${scaled(pageHtml(s,peek(m,s.id),m),280)}</div>`).join('')}</div></div>`;
   fitAll($('#g'));
-  document.querySelectorAll('[data-p]').forEach(b=>b.onclick=()=>{const s=S.services.find(x=>x.id===b.dataset.p);printPages([pageHtml(s,peek(m,s.id),m)],`動向レポート_${s.name}_${m}`);});
+  document.querySelectorAll('[data-p]').forEach(b=>b.onclick=()=>{const s=S.services.find(x=>x.id===b.dataset.p);printPages([pageHtml(s,peek(m,s.id),m)],`${s.name}_${m.replace('-','')}`);});
   $('#pdf').onclick=()=>{if(done<S.services.length&&!confirm('未提出のサービスがあります。このまま出力しますか？'))return;printPages(S.services.map(s=>pageHtml(s,peek(m,s.id),m)),`動向レポート_${m}`);};
   $('#exp').onclick=()=>{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(S,null,2)],{type:'application/json'}));a.download=`doukou-${m}.json`;a.click();};
   $('#imp').onchange=e=>{const f=e.target.files[0];if(!f)return;f.text().then(t=>{try{S=JSON.parse(t);save();init();toast('読み込みました');}catch(x){toast('読込に失敗しました');}});};
