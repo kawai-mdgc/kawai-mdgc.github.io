@@ -331,8 +331,8 @@ function showRequest(email){
 const inScope=id=>!!(me&&(me.isAdmin||(me.heads||[]).includes(id)));   // 自分の事業部（管理者は全部）
 const driveOn=()=>!!(me&&!me.viewAs&&me.driveCheck);
 function driveChip(m,id){
-  if(!driveOn()||!inScope(id))return '';const x=drive[key(m,id)];if(!x)return '';
-  const [t,c]=x.result==='ok'?['Drive：共有OK','var(--ok)']:['Drive：共有設定が必要','var(--ng)'];
+  if(!driveOn()||!inScope(id))return '';const x=drive[key(m,id)];if(!x||x.result==='ok')return '';   // 共有OKのときは、カードに何も出さない
+  const [t,c]=['Drive：共有設定が必要','var(--ng)'];
   return `<div style="margin-top:6px"><span class="note" style="color:${c};font-weight:700">● ${t}</span></div>`;
 }
 function showDrive(k){
