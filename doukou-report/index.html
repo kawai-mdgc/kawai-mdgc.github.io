@@ -188,11 +188,11 @@ const STATUS = {empty:['未入力','st-empty'], draft:['入力中','st-draft'], 
 const LS = 'doukou-report-v5';
 
 const DEFAULT = {deadlineDay:12, services:[
-  {id:'osouji', name:'おそうじ合衆国', color:'#3fc4f0', ink:'#ffffff', base:'assets/base-osouji.png', brush:'assets/brush-osouji.png', owner:'○○ 事業部長'},
-  {id:'fuyouhin', name:'不用品回収の窓口', color:'#ffd400', ink:'#1b1b1b', base:'assets/base-fuyouhin.png', brush:'assets/brush-fuyouhin.png', owner:'△△ 事業部長'},
-  {id:'kaitori', name:'みんなの買取', color:'#1f1f24', ink:'#ffffff', base:'assets/base-kaitori.png', brush:'assets/brush-kaitori.png', owner:'□□ 事業部長'},
-  {id:'gaiheki', name:'gaiheki+', color:'#c58bd0', ink:'#ffffff', base:'assets/base-gaiheki.png', brush:'assets/brush-gaiheki.png', owner:'◇◇ 事業部長'},
-  {id:'kaitai', name:'解体相談所', color:'#5d6b73', ink:'#ffffff', base:'assets/base-kaitai.png', brush:'assets/brush-kaitai.png', owner:'☆☆ 事業部長'},
+  {id:'osouji', name:'おそうじ合衆国', color:'#3fc4f0', ink:'#ffffff', base:'assets/base-osouji.webp', brush:'assets/brush-osouji.png', owner:'○○ 事業部長'},
+  {id:'fuyouhin', name:'不用品回収の窓口', color:'#ffd400', ink:'#1b1b1b', base:'assets/base-fuyouhin.webp', brush:'assets/brush-fuyouhin.png', owner:'△△ 事業部長'},
+  {id:'kaitori', name:'みんなの買取', color:'#1f1f24', ink:'#ffffff', base:'assets/base-kaitori.webp', brush:'assets/brush-kaitori.png', owner:'□□ 事業部長'},
+  {id:'gaiheki', name:'gaiheki+', color:'#c58bd0', ink:'#ffffff', base:'assets/base-gaiheki.webp', brush:'assets/brush-gaiheki.png', owner:'◇◇ 事業部長'},
+  {id:'kaitai', name:'解体相談所', color:'#5d6b73', ink:'#ffffff', base:'assets/base-kaitai.webp', brush:'assets/brush-kaitai.png', owner:'☆☆ 事業部長'},
 ], reports:{}};
 const blank2 = k => Array.from({length:3},()=>k==='u'?{title:'',body:''}:{title:'',body:''});
 const emptyReport = () => ({status:'empty', updates:blank2(), plans:blank2(), count:'', ad:'', advice:'', message:'', layout:'auto', updated:null, note:''});
