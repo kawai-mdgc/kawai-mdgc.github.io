@@ -306,7 +306,7 @@ function showRequest(email){
    <p class="note" style="margin:0 0 18px">承認すると、この人はレポートの作成・編集・削除ができるようになります。</p>
    <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap"><button class="btn" id="rqClose">閉じる</button><button class="btn" id="rqNo">却下</button><button class="btn ok" id="rqYes">承認する</button></div></div>`;
   document.body.appendChild(d);
-  const done=async(fn,msg)=>{d.remove();try{await fn();toast(msg);if(ui.tab==='settings')render();else updateBell();}catch(e){toast('失敗しました：'+(e.message||e));}};
+  const done=async(fn,msg)=>{d.remove();try{await fn();toast(msg);applyRoleUI();if(ui.tab==='settings')render();}catch(e){toast('失敗しました：'+(e.message||e));}};
   d.querySelector('#rqClose').onclick=()=>d.remove();
   d.querySelector('#rqYes').onclick=()=>done(()=>store.approve(x.email),`${x.name}さんの編集権限を承認しました`);
   d.querySelector('#rqNo').onclick=()=>done(()=>store.reject(x.email),'却下しました');
@@ -384,7 +384,7 @@ const LocalStore={
   async reject(e){access.decisions=decide(e,'rejected');requests=requests.filter(x=>x.email!==e);},async revoke(e){access.editors=access.editors.filter(x=>x!==e);}
 };
 /* デモ表示（?demo=manager／?demo=member）：Firebaseにはつながず、架空のサンプルを表示する。保存はされない */
-const DEMO_ROLE=['manager','member'].includes(new URLSearchParams(location.search).get('demo'))?new URLSearchParams(location.search).get('demo'):null;
+const DEMO_ROLE=['admin','manager','member'].includes(new URLSearchParams(location.search).get('demo'))?new URLSearchParams(location.search).get('demo'):null;
 function demoSample(){
   const cur=curIssue(),pm=prevMonth(cur),pm2=prevMonth(pm),who={name:'サンプル 太郎',email:''},now=new Date().toISOString();
   const sent='これは画面確認用の架空の文章です。実際の内容ではありません。';
@@ -398,7 +398,8 @@ function demoSample(){
 }
 const DemoStore={
   async init(){S.reports=demoSample();indexSnap();},
-  async setReport(){},async delReport(){},async setConfig(){},async requestEdit(){},async approve(){},async reject(){},async revoke(){}
+  async setReport(){},async delReport(){},async setConfig(){},async requestEdit(){},
+  async approve(e){return LocalStore.approve(e);},async reject(e){return LocalStore.reject(e);},async revoke(e){return LocalStore.revoke(e);}   // デモでも、承認・却下の動きは画面上で試せる（保存はされない）
 };
 const FireStore={
   async init(){
@@ -465,9 +466,10 @@ async function boot(){
   $('#goHome').onclick=()=>{if(me)guardLeave(()=>{ui.tab='home';render();});};
   $('#logout').onclick=async()=>{await flush();if(auth)await auth.signOut();me=null;store=null;started=false;access={editors:[],decisions:{}};requests=[];myReq=null;showLogin();};
   if(DEMO_ROLE){
-    me={name:DEMO_ROLE==='manager'?'事業部長（デモ）':'メンバー（デモ）',email:'demo@'+DOMAIN,isAdmin:false,baseEditor:DEMO_ROLE==='manager',sim:null};
+    me={name:{admin:'管理者（デモ）',manager:'事業部長（デモ）',member:'メンバー（デモ）'}[DEMO_ROLE],email:'demo@'+DOMAIN,isAdmin:DEMO_ROLE==='admin',baseEditor:DEMO_ROLE!=='member',sim:null};
+    if(DEMO_ROLE==='admin'){const t=Date.now();requests=[{email:'sample1@madoguchi.inc',name:'サンプル 一郎',at:new Date(t-3600e3).toISOString()},{email:'sample2@madoguchi.inc',name:'サンプル 二郎',at:new Date(t-600e3).toISOString()}];}
     store=DemoStore;await store.init();document.body.classList.add('demo');
-    $('#demoBar').innerHTML=`<b>デモ表示</b><span>架空のサンプルです。入力しても保存されません。</span><span style="flex:1"></span><a href="?demo=manager" class="${DEMO_ROLE==='manager'?'on':''}">事業部長（編集・削除できる）</a><a href="?demo=member" class="${DEMO_ROLE==='member'?'on':''}">メンバー（閲覧のみ）</a>`;
+    $('#demoBar').innerHTML=`<b>デモ表示</b><span>架空のサンプルです。入力しても保存されません。</span><span style="flex:1"></span><a href="?demo=admin" class="${DEMO_ROLE==='admin'?'on':''}">管理者（設定・承認ができる）</a><a href="?demo=manager" class="${DEMO_ROLE==='manager'?'on':''}">事業部長（編集・削除できる）</a><a href="?demo=member" class="${DEMO_ROLE==='member'?'on':''}">メンバー（閲覧のみ）</a>`;
     $('#logout').onclick=()=>{location.href=location.pathname;};
     $('#goHome').onclick=()=>guardLeave(()=>{ui.tab='home';render();});
     startApp();return;
@@ -682,7 +684,7 @@ function guardLeave(next){
   const d=document.createElement('div');d.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);display:grid;place-items:center;z-index:30;padding:20px';
   d.innerHTML=`<div class="card" style="width:min(420px,92vw);margin:0;text-align:center;padding:26px 22px"><h3 style="justify-content:center;font-size:16px;margin-bottom:8px">まだ提出できていません</h3>
    <p class="note" style="margin:0 0 20px;font-size:13px">この内容で提出しますか？</p>
-   <div style="display:grid;gap:8px"><button class="btn pri" id="lvSubmit">提出する</button><button class="btn" id="lvBack">編集に戻る</button><button class="btn sm" id="lvLeave" style="border:0;background:none;color:var(--sub)">提出せずに戻る（入力した内容は保存されています）</button></div></div>`;
+   <div style="display:grid;gap:8px"><button class="btn pri" id="lvSubmit">提出する</button><button class="btn" id="lvBack">編集に戻る</button><button id="lvLeave" style="border:0;background:none;color:#2456d6;font-size:14px;font-weight:600;text-decoration:underline;text-underline-offset:3px;cursor:pointer;padding:10px 0 2px">← 提出せずに戻る</button><span class="note" style="font-size:12px;margin-top:-4px">入力した内容は保存されています</span></div></div>`;
   document.body.appendChild(d);
   d.querySelector('#lvBack').onclick=()=>d.remove();
   d.querySelector('#lvLeave').onclick=()=>{d.remove();next();};
@@ -798,7 +800,7 @@ function viewSettings(){
    <div class="card"><h3>権限の申請 <small>${reqs.length}件</small></h3>${reqs.length?reqs.map(x=>`<div class="reqrow"><div><b>${esc(x.name)}</b><br><span class="note">${esc(x.email)}　${fmt(x.at)}</span></div><span class="spacer"></span><button class="btn sm ok" data-ap="${esc(x.email)}">承認</button><button class="btn sm" data-rj="${esc(x.email)}">却下</button></div>`).join(''):'<p class="note" style="margin:0">申請はありません。</p>'}</div>
    <div class="card"><h3>追加で承認した編集者 <small>${access.editors.length}名</small></h3>${access.editors.length?access.editors.map(e=>`<div class="reqrow"><span>${esc(e)}</span><span class="spacer"></span><button class="btn sm" data-rv="${esc(e)}">権限を外す</button></div>`).join(''):'<p class="note" style="margin:0">追加で承認した人はいません。</p>'}<p class="note" style="margin:10px 0 0">最初から編集権限のあるメンバー（設定ファイルで固定）と管理者は、ここには表示されません。</p></div>`);
   $('#setHome').onclick=()=>{ui.tab='home';render();};
-  const run=async(fn,msg)=>{try{await fn();toast(msg);render();}catch(e){toast('失敗しました：'+(e.message||e));}};
+  const run=async(fn,msg)=>{try{await fn();toast(msg);applyRoleUI();render();}catch(e){toast('失敗しました：'+(e.message||e));}};
   document.querySelectorAll('[data-ap]').forEach(b=>b.onclick=()=>run(()=>store.approve(b.dataset.ap),'承認しました。編集できるようになります'));
   document.querySelectorAll('[data-rj]').forEach(b=>b.onclick=()=>run(()=>store.reject(b.dataset.rj),'却下しました'));
   document.querySelectorAll('[data-rv]').forEach(b=>{b.onclick=()=>{if(confirm(b.dataset.rv+' の編集権限を外しますか？'))run(()=>store.revoke(b.dataset.rv),'権限を外しました');};});
