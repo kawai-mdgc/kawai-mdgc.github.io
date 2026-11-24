@@ -45,6 +45,7 @@ main{flex:1;min-height:0;display:flex}
 .f{margin-bottom:12px}.f:last-child{margin-bottom:0}
 .f label{display:flex;justify-content:space-between;font-size:12px;color:var(--sub);margin-bottom:4px;font-weight:600}
 .cnt.over{color:var(--ng);font-weight:700}
+.cnt.warn{color:#c77700;font-weight:700}
 .sub{border-top:1px dashed var(--line);padding-top:12px;margin-top:12px}
 .bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:16px}
 .errs{background:#fdeceb;border:1px solid #f3c4bf;color:var(--ng);border-radius:10px;padding:10px 14px;font-size:13px;margin-bottom:14px}
@@ -99,7 +100,7 @@ tr:last-child td{border-bottom:0}
 .page .msg .lb i{display:block;width:1px;height:2.4em;background:#222;flex:none}
 .page .msg .lb i.l{transform:rotate(-24deg)}
 .page .msg .lb i.r{transform:rotate(24deg)}
-.page .msg p{margin:0;line-height:1.8;white-space:pre-wrap}
+.page .msg p{margin:0;font-size:calc(10px*var(--k));line-height:1.8;white-space:pre-wrap}
 .page .ph{color:#bbb}
 #printRoot{display:none}
 @media print{
@@ -183,7 +184,19 @@ body:not(.authed) .login{display:grid}
 <script>
 /* 動向レポート作成ツール（プロトタイプ）
    Googleログイン(@madoguchi.inc限定)＋Firestoreに保存。config.js 未設定時はデモ（ブラウザ内保存） */
-const L = {updTitle:40, updBody:280, planTitle:40, planBody:160, count:600, ad:600, advice:200, message:480};
+/* 文字数のルール（参考字数。「程度」の項目は、参考字数のOVER_RATE倍までは入力でき、それを超えると提出できない） */
+const OVER_RATE=1.3;
+const LIM={updTitle:{s:35,h:35},planTitle:{s:59,h:59},count:{s:270,h:Math.round(270*OVER_RATE)},ad:{s:270,h:Math.round(270*OVER_RATE)},advice:{s:100,h:Math.round(100*OVER_RATE)},message:{s:350,h:Math.round(350*OVER_RATE)}};
+const itemsOf=(r,k)=>Math.min(3,Math.max(1,r[k].filter(x=>(x.title||'').trim()||(x.body||'').trim()).length,r['n_'+k]||0));
+/* アップデート本文は、項目が少ないほど長く書ける（3項目なら100字程度／予定は65字程度） */
+function limBody(r,kind){const n=itemsOf(r,kind),sft=Math.round((kind==='updates'?300:195)/n);return {s:sft,h:Math.round(sft*OVER_RATE)};}
+function limitForKey(r,k){
+  const m=k.match(/^(updates|plans)\.\d+\.(title|body)$/);
+  if(m)return m[2]==='title'?(m[1]==='updates'?LIM.updTitle:LIM.planTitle):limBody(r,m[1]);
+  return LIM[k];
+}
+const cntText=(n,l)=>l.s===l.h?`${n} / ${l.s}字以内`:`${n} / ${l.s}字程度（最大${l.h}）`;
+const cntCls=(n,l)=>n>l.h?'over':n>l.s?'warn':'';
 const STATUS = {empty:['未入力','st-empty'], draft:['入力中','st-draft'], submitted:['提出済み','st-submitted'], approved:['提出済み','st-submitted']};
 const LS = 'doukou-report-v5';
 
@@ -347,14 +360,14 @@ function deadlineInfo(){const [y,mo]=curIssue().split('-').map(Number),dl=new Da
 
 /* 検証 */
 function validate(r){
-  const e=[], over=(v,max,n)=>{if(len(v)>max)e.push(`${n}が${len(v)-max}文字オーバーです（上限${max}）`);};
+  const e=[], over=(v,lim,n)=>{if(len(v)>lim.h)e.push(`${n}が上限（${lim.h}字）を${len(v)-lim.h}文字超えています`);};
   if(!r.updates.some(x=>x.title.trim()&&x.body.trim())) e.push('今月のプロダクトアップデートを1つ以上入力してください（見出しと本文）');
   if(!r.plans.some(x=>x.title.trim()&&x.body.trim())) e.push('今後のアップデート予定を1つ以上入力してください（見出しと本文）');
   [['updates','アップデート'],['plans','予定']].forEach(([k,n])=>r[k].forEach((x,i)=>{if(!!x.title.trim()!==!!x.body.trim())e.push(`${n}${i+1}は見出しと本文をセットで入力してください`);}));
   [['count','直近の件数動向'],['ad','直近の広告動向'],['advice','ワンポイントアドバイス'],['message','運営者からのメッセージ']].forEach(([k,n])=>{if(!r[k].trim())e.push(n+'を入力してください');});
-  r.updates.forEach((x,i)=>{over(x.title,L.updTitle,`アップデート${i+1}の見出し`);over(x.body,L.updBody,`アップデート${i+1}の本文`);});
-  r.plans.forEach((x,i)=>{over(x.title,L.planTitle,`予定${i+1}の見出し`);over(x.body,L.planBody,`予定${i+1}の本文`);});
-  over(r.count,L.count,'直近の件数動向');over(r.ad,L.ad,'直近の広告動向');over(r.advice,L.advice,'ワンポイントアドバイス');over(r.message,L.message,'運営者からのメッセージ');
+  r.updates.forEach((x,i)=>{over(x.title,LIM.updTitle,`アップデート${i+1}の見出し`);over(x.body,limBody(r,'updates'),`アップデート${i+1}の本文`);});
+  r.plans.forEach((x,i)=>{over(x.title,LIM.planTitle,`予定${i+1}の見出し`);over(x.body,limBody(r,'plans'),`予定${i+1}の本文`);});
+  over(r.count,LIM.count,'直近の件数動向');over(r.ad,LIM.ad,'直近の広告動向');over(r.advice,LIM.advice,'ワンポイントアドバイス');over(r.message,LIM.message,'運営者からのメッセージ');
   return e;
 }
 function effStatus(m,id){const r=(S.reports[m]||{})[id];if(!r)return 'empty';
@@ -473,21 +486,20 @@ function viewLog(){
 function openReport(m,id,from){ui.back=from||'home';ui.month=m;ui.svc=id;ui.tab='edit';refreshMonths();render();}
 function newDialog(preSvc,copyFrom){
   const d=document.createElement('div');d.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);display:grid;place-items:center;z-index:9;overflow:auto;padding:20px';
-  let sel=preSvc||S.services[0].id;const ms=[...new Set([...monthOptions(),curIssue()])].sort();
+  let sel=preSvc||S.services[0].id;const cur=curIssue();
   d.innerHTML=`<div class="card" style="width:min(720px,94vw);margin:0"><h3>${copyFrom?'レポートを複製':'新規作成'} <small>テンプレートを選択</small></h3>
    <div id="tp" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:10px;margin-bottom:14px">${S.services.map(s=>`<button class="btn" data-s="${s.id}" style="padding:8px;display:grid;gap:6px;justify-items:center">${scaled(pageHtml(s,emptyReport(),ui.month),90)}<span style="font-size:12px">${esc(s.name)}</span></button>`).join('')}</div>
-   <div class="f"><label><span>対象月</span></label><select id="nm" style="width:100%">${ms.map(m=>`<option value="${m}" ${m===(copyFrom?nextMonth(copyFrom):curIssue())?'selected':''}>${mLabel(m)}</option>`).join('')}</select></div>
-   <label class="note" style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="cp" ${copyFrom?'checked':''}> 既存の内容をコピーして作成（前月分があればそれを使用）</label>
+   <div class="f"><label><span>対象月</span></label><input type="text" id="nm" value="${mLabel(cur)}" disabled style="width:100%;background:#f3f4f6;color:#9ca3af;border-color:#e5e7eb;cursor:not-allowed;-webkit-text-fill-color:#9ca3af"></div>
    <div class="bar"><span class="spacer"></span><button class="btn" id="nc">キャンセル</button><button class="btn pri" id="ng">作成して入力へ</button></div></div>`;
   document.body.appendChild(d);
   const mark=()=>d.querySelectorAll('[data-s]').forEach(b=>b.style.outline=b.dataset.s===sel?'2px solid #1b1b1b':'none');
   d.querySelectorAll('[data-s]').forEach(b=>b.onclick=()=>{sel=b.dataset.s;mark();});mark();
   d.querySelector('#nc').onclick=()=>d.remove();
   d.querySelector('#ng').onclick=()=>{
-    const m=d.querySelector('#nm').value;
+    const m=cur;
     if((S.reports[m]||{})[sel]){d.remove();toast('すでに作成済みです。開きます');openReport(m,sel);return;}
     let r=emptyReport();
-    if(d.querySelector('#cp').checked){const src=copyFrom?peek(copyFrom,sel):(S.reports[prevMonth(m)]||{})[sel];
+    if(copyFrom){const src=peek(copyFrom,sel);
       if(src&&(src.count||src.updates.some(x=>x.title))){r=structuredClone(src);r.status='draft';r.note='';r.updated=null;}else toast('コピー元がないため空で作成しました');}
     r.status='draft';S.reports[m]??={};S.reports[m][sel]=r;save();d.remove();openReport(m,sel);};
 }
@@ -497,9 +509,9 @@ function viewEdit(){
   const m=ui.month,svc=S.services.find(s=>s.id===ui.svc)||S.services[0];ui.svc=svc.id;
   const r=getReport(m,svc.id),st=effStatus(m,svc.id);
   const locked=false;
-  const cnt=(v,max)=>`<span class="cnt ${len(v)>max?'over':''}">${len(v)}/${max}</span>`;
+  const cnt=(v,l,k)=>`<span class="cnt ${cntCls(len(v),l)}" data-f="${k}">${cntText(len(v),l)}</span>`;
   const get=k=>k.split('.').reduce((o,x)=>o[x],r);
-  const inp=(label,k,max,rows,ph)=>{const v=get(k);return `<div class="f"><label><span>${label}</span>${cnt(v,max)}</label>${rows?`<textarea rows="${rows}" data-k="${k}" placeholder="${ph||''}">${esc(v)}</textarea>`:`<input type="text" data-k="${k}" value="${esc(v)}" placeholder="${ph||''}">`}</div>`;};
+  const inp=(label,k,max,rows,ph)=>{const v=get(k);return `<div class="f"><label><span>${label}</span>${cnt(v,max,k)}</label>${rows?`<textarea rows="${rows}" data-k="${k}" placeholder="${ph||''}">${esc(v)}</textarea>`:`<input type="text" data-k="${k}" value="${esc(v)}" placeholder="${ph||''}">`}</div>`;};
   const nShow=k=>{let l=0;r[k].forEach((x,i)=>{if(x.title||x.body)l=i+1;});return Math.min(3,Math.max(1,l,r['n_'+k]||0));};
   const list=(kind,tl,bl)=>{const n=nShow(kind);return Array.from({length:n},(_,i)=>pair(kind,i,tl,bl,n>1)).join('')+(n<3?`<div class="sub"><button class="btn sm" data-add="${kind}">＋ ${kind==='updates'?'アップデート':'予定'}を追加する</button></div>`:'');};
   const pair=(kind,i,tl,bl,del)=>`<div class="${i?'sub':''}">${del?`<div style="text-align:right;margin-bottom:6px"><button class="btn sm" data-del="${kind}:${i}">この項目を削除</button></div>`:''}${inp(`${kind==='updates'?'アップデート':'予定'}${i+1} 見出し`,`${kind}.${i}.title`,tl,0)}${inp('本文',`${kind}.${i}.body`,bl,3)}</div>`;
@@ -511,13 +523,13 @@ function viewEdit(){
     ${r.note?`<div class="errs">差し戻しコメント：${esc(r.note)}</div>`:''}
     <div id="errs"></div>
     <div class="${locked?'locked':''}" id="fields">
-      <div class="card"><h3>① 今月のプロダクトアップデート状況 <small>最大3件</small></h3>${list('updates',L.updTitle,L.updBody)}</div>
-      <div class="card"><h3>② 今後のプロダクトアップデート予定 <small>最大3件</small></h3>${list('plans',L.planTitle,L.planBody)}</div>
+      <div class="card"><h3>① 今月のプロダクトアップデート状況 <small>最大3件</small></h3>${list('updates',LIM.updTitle,limBody(r,'updates'))}</div>
+      <div class="card"><h3>② 今後のプロダクトアップデート予定 <small>最大3件</small></h3>${list('plans',LIM.planTitle,limBody(r,'plans'))}</div>
       <div class="card"><h3>③ 直近の件数動向・広告動向 <small>短ければ自動で横並び</small></h3>
-        ${inp('直近の件数動向','count',L.count,5)}${inp('直近の広告動向','ad',L.ad,5)}
+        ${inp('直近の件数動向','count',LIM.count,5)}${inp('直近の広告動向','ad',LIM.ad,5)}
         <div class="f"><label><span>レイアウト</span></label><select data-k="layout"><option value="auto">自動（余白が18px以下なら横並び）</option><option value="stack">すべて縦並び</option><option value="side">件数と広告動向を横並び</option><option value="side2">広告動向とアドバイスを横並び</option></select></div></div>
-      <div class="card"><h3>④ ワンポイントアドバイス</h3>${inp('アドバイス','advice',L.advice,3)}</div>
-      <div class="card"><h3>⑤ 運営者からのメッセージ</h3>${inp('メッセージ','message',L.message,6)}</div>
+      <div class="card"><h3>④ ワンポイントアドバイス</h3>${inp('アドバイス','advice',LIM.advice,3)}</div>
+      <div class="card"><h3>⑤ 運営者からのメッセージ</h3>${inp('メッセージ','message',LIM.message,6)}</div>
     </div>
     <div class="bar">
       <button class="btn" id="copyPrev" ${locked?'disabled':''}>前月の内容をコピー</button>
@@ -535,7 +547,7 @@ function viewEdit(){
     const path=el.dataset.k.split('.');let o=r;for(let i=0;i<path.length-1;i++)o=o[path[i]];o[path[path.length-1]]=el.value;
     if(r.status==='empty')r.status='draft';
     r.updated=new Date().toLocaleString('ja-JP',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'});save();
-    const c=el.parentElement.querySelector('.cnt');if(c){const max=+c.textContent.split('/')[1];c.textContent=len(el.value)+'/'+max;c.classList.toggle('over',len(el.value)>max);}
+    document.querySelectorAll('#fields .cnt').forEach(c=>{const k=c.dataset.f,l=limitForKey(r,k),n=len(k.split('.').reduce((o,x)=>o[x],r));c.textContent=cntText(n,l);c.className='cnt '+cntCls(n,l);});
     draw(svc,r,m);});
   $('#copyPrev')?.addEventListener('click',()=>{const p=(S.reports[prevMonth(m)]||{})[svc.id];if(!p){toast('前月のデータがありません');return;}
     const c=structuredClone(p);c.status='draft';c.note='';S.reports[m][svc.id]=c;save();render();toast('前月の内容をコピーしました。更新してください');});
@@ -543,11 +555,10 @@ function viewEdit(){
   document.querySelectorAll('[data-add]').forEach(b=>b.onclick=()=>{const k=b.dataset.add;const n=nShow(k);r['n_'+k]=Math.min(3,n+1);if(r.status==='empty')r.status='draft';save();renderKeep(n<3?`${k}.${n}.title`:null);});
   document.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{const [k,i]=b.dataset.del.split(':');const n=nShow(k);r[k].splice(+i,1);r[k].push({title:'',body:''});r['n_'+k]=Math.max(1,n-1);save();renderKeep();});
   $('#submitBtn')?.addEventListener('click',async()=>{
-    const e=validate(r).filter(x=>!x.includes('オーバー'));
-    if(e.length){$('#errs').innerHTML=`<div class="errs">提出できません。以下を入力してください。<ul>${e.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></div>`;$('#errs').scrollIntoView({behavior:'smooth'});return;}
-    const over=validate(r).some(x=>x.includes('オーバー'));
+    const e=validate(r);
+    if(e.length){$('#errs').innerHTML=`<div class="errs">提出できません。以下を直してください。<ul>${e.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></div>`;$('#errs').scrollIntoView({behavior:'smooth'});return;}
     r.status='submitted';r.note='';await flush();renderKeep();
-    toast(over?'提出しました（文字数が上限を超えている項目があります。文字が小さく表示されます）':'提出しました');
+    toast('提出しました');
   });
   $('#withdraw')?.addEventListener('click',async()=>{r.status='draft';await flush();renderKeep();toast('提出を取り下げました');});
   $('#pdf1').onclick=()=>printPages([pageHtml(svc,r,m)],`動向レポート_${svc.name}_${m}`);
